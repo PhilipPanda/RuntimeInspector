@@ -172,6 +172,14 @@
     <ClCompile Include="external\imgui\backends\imgui_impl_dx11.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="RuntimeInspector.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="resources\icon.ico">
+      <ExcludedFromBuild Condition="!Exists('resources\icon.ico')">true</ExcludedFromBuild>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="src\gui\MainWindow.h" />
     <ClInclude Include="src\core\SystemInfo.h" />
     <ClInclude Include="src\core\ProcessManager.h" />
@@ -181,6 +189,7 @@
     <ClInclude Include="external\imgui\imgui_internal.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_win32.h" />
     <ClInclude Include="external\imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="resource.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

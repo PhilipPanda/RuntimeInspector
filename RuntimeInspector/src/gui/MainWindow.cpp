@@ -6,9 +6,14 @@
 #include "external/imgui/backends/imgui_impl_win32.h"
 #include "external/imgui/backends/imgui_impl_dx11.h"
 #include <d3d11.h>
+#include <dxgi.h>
 #include <d3dcompiler.h>
 #include <shellapi.h>
 #include <psapi.h>
+#include <sstream>
+#include <iomanip>
+#include <fstream>
+#include "../../resource.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")
@@ -34,10 +39,19 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	, m_SelectedProcessIndex(-1)
 	, m_SelectedInjectionMethod(0)
 	, m_AutoRefresh(false)
+	, m_ShowProcessDetails(false)
+	, m_ShowThreadManager(false)
+	, m_ShowModuleInspector(false)
+	, m_ShowMemoryAnalyzer(false)
+	, m_ShowProcessProperties(false)
 {
 	m_DllPathBuffer[0] = '\0';
 	m_ProcessFilter[0] = '\0';
+	m_MemoryAddressBuffer[0] = '\0';
+	m_MemorySizeBuffer[0] = '\0';
+	m_SearchStringBuffer[0] = '\0';
 	m_StatusMessage = "Ready";
+	memset(&m_CurrentProcessDetails, 0, sizeof(m_CurrentProcessDetails));
 }
 
 MainWindow::~MainWindow() {
@@ -69,8 +83,16 @@ bool MainWindow::CreateMainWindow() {
 	wc.hInstance = m_hInstance;
 	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	wc.lpszClassName = L"RuntimeInspectorMainWindow";
-	wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
-	wc.hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
+	HICON hIcon = (HICON)LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_MAIN_ICON), IMAGE_ICON, GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0);
+	HICON hIconSm = (HICON)LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_MAIN_ICON), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0);
+	if (!hIcon) {
+		hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+	}
+	if (!hIconSm) {
+		hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
+	}
+	wc.hIcon = hIcon;
+	wc.hIconSm = hIconSm;
 
 	RegisterClassExW(&wc);
 
@@ -86,13 +108,17 @@ bool MainWindow::CreateMainWindow() {
 		this
 	);
 	
-	SetWindowTextW(m_hWnd, L"Runtime Inspector");
-
 	if (!m_hWnd) {
 		return false;
 	}
 
 	SetWindowTextW(m_hWnd, L"Runtime Inspector");
+	if (hIcon) {
+		SendMessageW(m_hWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+	}
+	if (hIconSm) {
+		SendMessageW(m_hWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSm);
+	}
 	
 	ShowWindow(m_hWnd, SW_SHOWNORMAL);
 	UpdateWindow(m_hWnd);
@@ -228,7 +254,7 @@ void MainWindow::RenderUI() {
 
 	if (ImGui::BeginMenuBar()) {
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 1));
-		ImGui::Text("RuntimeInspector");
+		ImGui::Text("Runtime Inspector");
 		ImGui::PopStyleVar();
 		ImGui::EndMenuBar();
 	}
@@ -241,13 +267,41 @@ void MainWindow::RenderUI() {
 	ImGui::SameLine();
 
 	ImGui::BeginChild("Controls", ImVec2(0, 0), true);
-	RenderDllSelection();
-	ImGui::Spacing();
-	RenderInjectionMethod();
-	ImGui::Spacing();
 	
-	if (ImGui::Button("Inject DLL", ImVec2(-1, 35))) {
-		PerformInjection();
+	if (ImGui::BeginTabBar("MainTabs")) {
+		if (ImGui::BeginTabItem("Injection")) {
+			RenderDllSelection();
+			ImGui::Spacing();
+			RenderInjectionMethod();
+			ImGui::Spacing();
+			
+			if (ImGui::Button("Inject DLL", ImVec2(-1, 35))) {
+				PerformInjection();
+			}
+			ImGui::EndTabItem();
+		}
+		
+		if (ImGui::BeginTabItem("Process Details")) {
+			RenderProcessDetails();
+			ImGui::EndTabItem();
+		}
+		
+		if (ImGui::BeginTabItem("Threads")) {
+			RenderThreadManager();
+			ImGui::EndTabItem();
+		}
+		
+		if (ImGui::BeginTabItem("Modules")) {
+			RenderModuleInspector();
+			ImGui::EndTabItem();
+		}
+		
+		if (ImGui::BeginTabItem("Memory")) {
+			RenderMemoryAnalyzer();
+			ImGui::EndTabItem();
+		}
+		
+		ImGui::EndTabBar();
 	}
 
 	ImGui::Spacing();
@@ -259,16 +313,27 @@ void MainWindow::RenderUI() {
 
 void MainWindow::RenderProcessList() {
 	ImGui::Text("Processes");
-	ImGui::SameLine(ImGui::GetContentRegionAvail().x - 60);
+	float buttonWidth = 70.0f;
+	float spacing = ImGui::GetStyle().ItemSpacing.x;
+	ImGui::SameLine(ImGui::GetContentRegionAvail().x - (buttonWidth * 2 + spacing));
 	if (ImGui::SmallButton("Refresh")) {
 		RefreshProcessList();
 	}
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Export")) {
+		ExportProcessList();
+	}
 	
 	ImGui::Spacing();
-	ImGui::InputText("##Filter", m_ProcessFilter, sizeof(m_ProcessFilter));
+	ImGui::PushItemWidth(-1);
+	if (ImGui::InputText("##Filter", m_ProcessFilter, sizeof(m_ProcessFilter))) {
+	}
+	ImGui::PopItemWidth();
 	if (m_ProcessFilter[0] == '\0') {
-		ImGui::SameLine();
-		ImGui::SetCursorPosX(ImGui::GetCursorPosX() - ImGui::GetTextLineHeight() * 2);
+		ImVec2 pos = ImGui::GetItemRectMin();
+		pos.x += ImGui::GetStyle().FramePadding.x;
+		pos.y += ImGui::GetStyle().FramePadding.y;
+		ImGui::SetCursorPos(pos);
 		ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 0.8f), "Filter...");
 	}
 
@@ -326,9 +391,17 @@ void MainWindow::RenderProcessList() {
 			sprintf_s(pidLabel, "%lu", proc.ProcessId);
 			if (ImGui::Selectable(pidLabel, selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_DontClosePopups)) {
 				m_SelectedProcessIndex = (int)i;
+				if (m_SelectedProcessIndex >= 0) {
+					RefreshProcessDetails();
+				}
 			}
 			
 			if (ImGui::BeginPopupContextItem("ProcessContextMenu")) {
+				if (ImGui::MenuItem("Properties")) {
+					ShowProcessProperties(proc.ProcessId);
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::Separator();
 				if (ImGui::MenuItem("Open File Location")) {
 					OpenProcessFileLocation(proc.ProcessId);
 					ImGui::CloseCurrentPopup();
@@ -337,12 +410,13 @@ void MainWindow::RenderProcessList() {
 					CopyProcessId(proc.ProcessId);
 					ImGui::CloseCurrentPopup();
 				}
-				if (ImGui::MenuItem("Terminate")) {
-					TerminateProcess(proc.ProcessId);
-					ImGui::CloseCurrentPopup();
-				}
 				if (ImGui::MenuItem("Copy Name")) {
 					CopyProcessName(proc.ProcessName);
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::Separator();
+				if (ImGui::MenuItem("Terminate")) {
+					TerminateProcess(proc.ProcessId);
 					ImGui::CloseCurrentPopup();
 				}
 				if (ImGui::MenuItem("Search Online")) {
@@ -400,6 +474,220 @@ void MainWindow::RenderStatusBar() {
 			ImGui::TextWrapped("%s", msg.c_str());
 		}
 		ImGui::SetScrollHereY(1.0f);
+		ImGui::EndChild();
+	}
+}
+
+void MainWindow::RenderProcessDetails() {
+	if (m_SelectedProcessIndex < 0 || m_SelectedProcessIndex >= (int)m_Processes.size()) {
+		ImGui::Text("Select a process to view details");
+		return;
+	}
+
+	DWORD pid = m_Processes[m_SelectedProcessIndex].ProcessId;
+	
+	if (ImGui::Button("Refresh Details")) {
+		RefreshProcessDetails();
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Refresh Threads")) {
+		RefreshThreads(pid);
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Refresh Modules")) {
+		RefreshModules(pid);
+	}
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+
+	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+	if (!hProcess) {
+		ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Failed to open process (Access Denied)");
+		return;
+	}
+
+	PROCESS_MEMORY_COUNTERS_EX pmc = {};
+	if (GetProcessMemoryInfo(hProcess, (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+		ImGui::Text("Memory Information:");
+		ImGui::BulletText("Working Set: %.2f MB", pmc.WorkingSetSize / (1024.0 * 1024.0));
+		ImGui::BulletText("Peak Working Set: %.2f MB", pmc.PeakWorkingSetSize / (1024.0 * 1024.0));
+		ImGui::BulletText("Page File Usage: %.2f MB", pmc.PagefileUsage / (1024.0 * 1024.0));
+		ImGui::BulletText("Peak Page File Usage: %.2f MB", pmc.PeakPagefileUsage / (1024.0 * 1024.0));
+		ImGui::BulletText("Private Usage: %.2f MB", pmc.PrivateUsage / (1024.0 * 1024.0));
+	}
+
+	FILETIME creationTime, exitTime, kernelTime, userTime;
+	if (GetProcessTimes(hProcess, &creationTime, &exitTime, &kernelTime, &userTime)) {
+		ImGui::Spacing();
+		ImGui::Text("Process Times:");
+		SYSTEMTIME st;
+		FileTimeToSystemTime(&creationTime, &st);
+		ImGui::BulletText("Creation Time: %02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+		
+		ULARGE_INTEGER kernel, user;
+		kernel.LowPart = kernelTime.dwLowDateTime;
+		kernel.HighPart = kernelTime.dwHighDateTime;
+		user.LowPart = userTime.dwLowDateTime;
+		user.HighPart = userTime.dwHighDateTime;
+		
+		ImGui::BulletText("Kernel Time: %.2f seconds", kernel.QuadPart / 10000000.0);
+		ImGui::BulletText("User Time: %.2f seconds", user.QuadPart / 10000000.0);
+	}
+
+	char exePath[MAX_PATH] = { 0 };
+	if (GetModuleFileNameExA(hProcess, nullptr, exePath, MAX_PATH)) {
+		ImGui::Spacing();
+		ImGui::Text("Executable Path:");
+		ImGui::TextWrapped("%s", exePath);
+	}
+
+	CloseHandle(hProcess);
+}
+
+void MainWindow::RenderThreadManager() {
+	if (m_SelectedProcessIndex < 0 || m_SelectedProcessIndex >= (int)m_Processes.size()) {
+		ImGui::Text("Select a process to view threads");
+		return;
+	}
+
+	DWORD pid = m_Processes[m_SelectedProcessIndex].ProcessId;
+	
+	if (ImGui::Button("Refresh Threads")) {
+		RefreshThreads(pid);
+	}
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+
+	if (ImGui::BeginTable("Threads", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+		ImGui::TableSetupColumn("Thread ID", ImGuiTableColumnFlags_WidthFixed, 100);
+		ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, 100);
+		ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableHeadersRow();
+
+		for (const auto& thread : m_CurrentThreads) {
+			ImGui::TableNextRow();
+			
+			ImGui::TableSetColumnIndex(0);
+			ImGui::Text("%lu", thread.ThreadId);
+			
+			ImGui::TableSetColumnIndex(1);
+			ImGui::Text("%s", thread.State.c_str());
+			
+			ImGui::TableSetColumnIndex(2);
+			ImGui::PushID(thread.ThreadId);
+			if (thread.State == "Running") {
+				if (ImGui::SmallButton("Suspend")) {
+					SuspendThread(thread.ThreadId);
+					RefreshThreads(pid);
+				}
+			}
+			else if (thread.State == "Suspended") {
+				if (ImGui::SmallButton("Resume")) {
+					ResumeThread(thread.ThreadId);
+					RefreshThreads(pid);
+				}
+			}
+			ImGui::PopID();
+		}
+		ImGui::EndTable();
+	}
+}
+
+void MainWindow::RenderModuleInspector() {
+	if (m_SelectedProcessIndex < 0 || m_SelectedProcessIndex >= (int)m_Processes.size()) {
+		ImGui::Text("Select a process to view modules");
+		return;
+	}
+
+	DWORD pid = m_Processes[m_SelectedProcessIndex].ProcessId;
+	
+	if (ImGui::Button("Refresh Modules")) {
+		RefreshModules(pid);
+	}
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+
+	if (ImGui::BeginTable("Modules", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY)) {
+		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn("Base Address", ImGuiTableColumnFlags_WidthFixed, 120);
+		ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 100);
+		ImGui::TableSetupColumn("Path", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableHeadersRow();
+
+		for (const auto& module : m_CurrentModules) {
+			ImGui::TableNextRow();
+			
+			ImGui::TableSetColumnIndex(0);
+			ImGui::Text("%s", module.Name.c_str());
+			
+			ImGui::TableSetColumnIndex(1);
+			ImGui::Text("0x%p", (void*)module.BaseAddress);
+			
+			ImGui::TableSetColumnIndex(2);
+			ImGui::Text("%.2f KB", module.Size / 1024.0);
+			
+			ImGui::TableSetColumnIndex(3);
+			ImGui::TextWrapped("%s", module.Path.c_str());
+		}
+		ImGui::EndTable();
+	}
+}
+
+void MainWindow::RenderMemoryAnalyzer() {
+	if (m_SelectedProcessIndex < 0 || m_SelectedProcessIndex >= (int)m_Processes.size()) {
+		ImGui::Text("Select a process to analyze memory");
+		return;
+	}
+
+	DWORD pid = m_Processes[m_SelectedProcessIndex].ProcessId;
+
+	ImGui::Text("Memory Reader:");
+	ImGui::PushItemWidth(200);
+	ImGui::InputText("Address (hex)", m_MemoryAddressBuffer, sizeof(m_MemoryAddressBuffer));
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	ImGui::PushItemWidth(150);
+	ImGui::InputText("Size (bytes)", m_MemorySizeBuffer, sizeof(m_MemorySizeBuffer));
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	if (ImGui::Button("Read")) {
+		ULONG_PTR addr = 0;
+		SIZE_T size = 0;
+		sscanf_s(m_MemoryAddressBuffer, "%llx", &addr);
+		sscanf_s(m_MemorySizeBuffer, "%zu", &size);
+		if (addr && size && size < 1024) {
+			ReadProcessMemory(pid, (LPCVOID)addr, size);
+		}
+	}
+
+	ImGui::Spacing();
+	ImGui::Separator();
+	ImGui::Spacing();
+
+	ImGui::Text("String Search:");
+	ImGui::PushItemWidth(-80);
+	ImGui::InputText("##SearchString", m_SearchStringBuffer, sizeof(m_SearchStringBuffer));
+	ImGui::PopItemWidth();
+	ImGui::SameLine();
+	if (ImGui::Button("Search")) {
+		if (strlen(m_SearchStringBuffer) > 0) {
+			SearchMemoryStrings(pid);
+		}
+	}
+
+	if (!m_MemorySearchResults.empty()) {
+		ImGui::Spacing();
+		ImGui::Text("Search Results:");
+		ImGui::BeginChild("SearchResults", ImVec2(0, 200), true);
+		for (const auto& result : m_MemorySearchResults) {
+			ImGui::TextWrapped("%s", result.c_str());
+		}
 		ImGui::EndChild();
 	}
 }
@@ -826,4 +1114,219 @@ void MainWindow::SearchProcessOnline(const std::string& processName) {
 	std::string searchUrl = "https://www.google.com/search?q=" + processName;
 	ShellExecuteA(nullptr, "open", searchUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 	m_StatusMessage = "Searching online for " + processName;
+}
+
+void MainWindow::ShowProcessProperties(DWORD processId) {
+	m_ShowProcessProperties = true;
+	RefreshProcessDetails();
+}
+
+void MainWindow::ExportProcessList() {
+	OPENFILENAMEA ofn = {};
+	char szFile[260] = { 0 };
+	strcpy_s(szFile, "processes.txt");
+
+	ofn.lStructSize = sizeof(ofn);
+	ofn.hwndOwner = m_hWnd;
+	ofn.lpstrFile = szFile;
+	ofn.nMaxFile = sizeof(szFile);
+	ofn.lpstrFilter = "Text Files\0*.txt\0All Files\0*.*\0";
+	ofn.nFilterIndex = 1;
+	ofn.lpstrFileTitle = nullptr;
+	ofn.Flags = OFN_OVERWRITEPROMPT;
+
+	if (GetSaveFileNameA(&ofn)) {
+		std::ofstream file(szFile);
+		if (file.is_open()) {
+			file << "PID\tName\tArchitecture\n";
+			for (const auto& proc : m_Processes) {
+				file << proc.ProcessId << "\t" << proc.ProcessName << "\t" << proc.Architecture << "\n";
+			}
+			file.close();
+			m_StatusMessage = "Process list exported to " + std::string(szFile);
+		}
+		else {
+			m_StatusMessage = "Failed to export process list";
+		}
+	}
+}
+
+void MainWindow::RefreshProcessDetails() {
+	if (m_SelectedProcessIndex < 0 || m_SelectedProcessIndex >= (int)m_Processes.size()) {
+		return;
+	}
+
+	DWORD pid = m_Processes[m_SelectedProcessIndex].ProcessId;
+	m_CurrentProcessDetails.ProcessId = pid;
+	m_CurrentProcessDetails.ProcessName = m_Processes[m_SelectedProcessIndex].ProcessName;
+}
+
+void MainWindow::RefreshThreads(DWORD processId) {
+	m_CurrentThreads.clear();
+	
+	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+	if (hSnapshot == INVALID_HANDLE_VALUE) {
+		return;
+	}
+
+	THREADENTRY32 te32 = {};
+	te32.dwSize = sizeof(THREADENTRY32);
+
+	if (Thread32First(hSnapshot, &te32)) {
+		do {
+			if (te32.th32OwnerProcessID == processId) {
+				ThreadInfo info = {};
+				info.ThreadId = te32.th32ThreadID;
+				info.ProcessId = te32.th32OwnerProcessID;
+				
+				HANDLE hThread = OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME, FALSE, info.ThreadId);
+				if (hThread) {
+					DWORD suspendCount = ::SuspendThread(hThread);
+					if (suspendCount != (DWORD)-1) {
+						if (suspendCount > 0) {
+							::ResumeThread(hThread);
+							info.State = "Suspended";
+						}
+						else {
+							info.State = "Running";
+						}
+					}
+					else {
+						info.State = "Unknown";
+					}
+					CloseHandle(hThread);
+				}
+				else {
+					info.State = "Unknown";
+				}
+				
+				m_CurrentThreads.push_back(info);
+			}
+		} while (Thread32Next(hSnapshot, &te32));
+	}
+
+	CloseHandle(hSnapshot);
+}
+
+void MainWindow::RefreshModules(DWORD processId) {
+	m_CurrentModules.clear();
+	
+	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+	if (!hProcess) {
+		return;
+	}
+
+	HMODULE hMods[1024];
+	DWORD cbNeeded;
+	if (EnumProcessModules(hProcess, hMods, sizeof(hMods), &cbNeeded)) {
+		for (unsigned int i = 0; i < (cbNeeded / sizeof(HMODULE)); i++) {
+			char szModName[MAX_PATH];
+			if (GetModuleFileNameExA(hProcess, hMods[i], szModName, sizeof(szModName))) {
+				MODULEINFO modInfo = {};
+				if (GetModuleInformation(hProcess, hMods[i], &modInfo, sizeof(modInfo))) {
+					ModuleInfo info = {};
+					char* fileName = strrchr(szModName, '\\');
+					info.Name = fileName ? fileName + 1 : szModName;
+					info.Path = szModName;
+					info.BaseAddress = (ULONG_PTR)modInfo.lpBaseOfDll;
+					info.Size = modInfo.SizeOfImage;
+					m_CurrentModules.push_back(info);
+				}
+			}
+		}
+	}
+
+	CloseHandle(hProcess);
+}
+
+void MainWindow::SuspendThread(DWORD threadId) {
+	HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId);
+	if (hThread) {
+		::SuspendThread(hThread);
+		CloseHandle(hThread);
+		m_StatusMessage = "Thread suspended";
+	}
+}
+
+void MainWindow::ResumeThread(DWORD threadId) {
+	HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadId);
+	if (hThread) {
+		::ResumeThread(hThread);
+		CloseHandle(hThread);
+		m_StatusMessage = "Thread resumed";
+	}
+}
+
+void MainWindow::ReadProcessMemory(DWORD processId, LPCVOID address, SIZE_T size) {
+	HANDLE hProcess = OpenProcess(PROCESS_VM_READ, FALSE, processId);
+	if (!hProcess) {
+		m_StatusMessage = "Failed to open process for memory read";
+		return;
+	}
+
+	std::vector<BYTE> buffer(size);
+	SIZE_T bytesRead = 0;
+	if (::ReadProcessMemory(hProcess, address, buffer.data(), size, &bytesRead)) {
+		std::stringstream ss;
+		ss << "Memory at 0x" << std::hex << (ULONG_PTR)address << " (" << std::dec << bytesRead << " bytes):\n";
+		for (SIZE_T i = 0; i < bytesRead; i++) {
+			if (i % 16 == 0) {
+				ss << "\n0x" << std::hex << std::setfill('0') << std::setw(8) << (ULONG_PTR)address + i << ": ";
+			}
+			ss << std::hex << std::setfill('0') << std::setw(2) << (int)buffer[i] << " ";
+		}
+		m_LogMessages.push_back(ss.str());
+		m_StatusMessage = "Memory read successful";
+	}
+	else {
+		m_StatusMessage = "Failed to read memory";
+	}
+
+	CloseHandle(hProcess);
+}
+
+void MainWindow::SearchMemoryStrings(DWORD processId) {
+	m_MemorySearchResults.clear();
+	
+	HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+	if (!hProcess) {
+		m_StatusMessage = "Failed to open process for memory search";
+		return;
+	}
+
+	MEMORY_BASIC_INFORMATION mbi = {};
+	LPCVOID address = nullptr;
+	std::string searchStr = m_SearchStringBuffer;
+	
+	while (VirtualQueryEx(hProcess, address, &mbi, sizeof(mbi))) {
+		if (mbi.State == MEM_COMMIT && (mbi.Protect == PAGE_READONLY || mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READ || mbi.Protect == PAGE_EXECUTE_READWRITE)) {
+			std::vector<BYTE> buffer(mbi.RegionSize);
+			SIZE_T bytesRead = 0;
+			if (::ReadProcessMemory(hProcess, mbi.BaseAddress, buffer.data(), mbi.RegionSize, &bytesRead)) {
+				for (SIZE_T i = 0; i <= bytesRead - searchStr.length(); i++) {
+					if (memcmp(buffer.data() + i, searchStr.c_str(), searchStr.length()) == 0) {
+						std::stringstream ss;
+						ss << "Found at 0x" << std::hex << (ULONG_PTR)mbi.BaseAddress + i;
+						m_MemorySearchResults.push_back(ss.str());
+						if (m_MemorySearchResults.size() >= 100) {
+							break;
+						}
+					}
+				}
+			}
+		}
+		address = (LPCVOID)((ULONG_PTR)mbi.BaseAddress + mbi.RegionSize);
+		if (m_MemorySearchResults.size() >= 100) {
+			break;
+		}
+	}
+
+	CloseHandle(hProcess);
+	m_StatusMessage = "Found " + std::to_string(m_MemorySearchResults.size()) + " matches";
+}
+
+void MainWindow::EnumerateHandles(DWORD processId) {
+	m_HandleList.clear();
+	m_HandleList.push_back("Handle enumeration requires additional privileges");
+	m_StatusMessage = "Handle enumeration not fully implemented";
 }
