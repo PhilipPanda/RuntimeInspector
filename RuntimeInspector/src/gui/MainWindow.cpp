@@ -100,7 +100,7 @@ bool MainWindow::CreateMainWindow() {
 		WS_EX_APPWINDOW,
 		L"RuntimeInspectorMainWindow",
 		L"Runtime Inspector",
-		WS_POPUP | WS_SYSMENU,
+		WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
 		100, 100, 1000, 700,
 		nullptr,
 		nullptr,
@@ -304,7 +304,6 @@ void MainWindow::RenderUI() {
 	ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
 	ImGui::Begin("Runtime Inspector", nullptr, 
 		ImGuiWindowFlags_MenuBar | 
-		ImGuiWindowFlags_NoResize | 
 		ImGuiWindowFlags_NoTitleBar |
 		ImGuiWindowFlags_NoBringToFrontOnFocus);
 
@@ -1122,22 +1121,28 @@ void* MainWindow::IconToTexture(HICON hIcon) {
 	HBITMAP hBitmap = CreateDIBSection(hDC, &bmi, DIB_RGB_COLORS, (void**)&pixels, nullptr, 0);
 	if (!hBitmap) {
 		DeleteDC(hDC);
+		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
+		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
 		return nullptr;
 	}
+
+	memset(pixels, 0, width * height * 4);
 
 	HBITMAP hOldBitmap = (HBITMAP)SelectObject(hDC, hBitmap);
 	DrawIconEx(hDC, 0, 0, hIcon, width, height, 0, nullptr, DI_NORMAL);
 	SelectObject(hDC, hOldBitmap);
 	DeleteDC(hDC);
 
+	unsigned int* rgbaPixels = new unsigned int[width * height];
 	for (int i = 0; i < width * height; i++) {
 		unsigned int pixel = pixels[i];
 		unsigned char b = (pixel >> 0) & 0xFF;
 		unsigned char g = (pixel >> 8) & 0xFF;
 		unsigned char r = (pixel >> 16) & 0xFF;
 		unsigned char a = (pixel >> 24) & 0xFF;
-		pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
+		rgbaPixels[i] = (a << 24) | (b << 16) | (g << 8) | r;
 	}
+	DeleteObject(hBitmap);
 
 	D3D11_TEXTURE2D_DESC desc = { 0 };
 	desc.Width = width;
@@ -1151,17 +1156,18 @@ void* MainWindow::IconToTexture(HICON hIcon) {
 	desc.CPUAccessFlags = 0;
 
 	D3D11_SUBRESOURCE_DATA subResource = { 0 };
-	subResource.pSysMem = pixels;
+	subResource.pSysMem = rgbaPixels;
 	subResource.SysMemPitch = width * 4;
 	subResource.SysMemSlicePitch = 0;
 
 	ID3D11Texture2D* pTexture = nullptr;
 	if (FAILED(g_pd3dDevice->CreateTexture2D(&desc, &subResource, &pTexture))) {
-		DeleteObject(hBitmap);
+		delete[] rgbaPixels;
 		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
 		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
 		return nullptr;
 	}
+	delete[] rgbaPixels;
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = { 0 };
 	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -1172,14 +1178,12 @@ void* MainWindow::IconToTexture(HICON hIcon) {
 	ID3D11ShaderResourceView* pSRV = nullptr;
 	if (FAILED(g_pd3dDevice->CreateShaderResourceView(pTexture, &srvDesc, &pSRV))) {
 		pTexture->Release();
-		DeleteObject(hBitmap);
 		if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
 		if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
 		return nullptr;
 	}
 
 	pTexture->Release();
-	DeleteObject(hBitmap);
 	if (iconInfo.hbmColor) DeleteObject(iconInfo.hbmColor);
 	if (iconInfo.hbmMask) DeleteObject(iconInfo.hbmMask);
 
@@ -1331,7 +1335,26 @@ void MainWindow::RenderProcessPropertiesWindow() {
 		ImGui::Text("Architecture:");
 		ImGui::SameLine(150);
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.9f, 1.0f));
-		ImGui::Text("%s", m_CurrentProcessDetails.Architecture.c_str());
+		std::string arch = "?";
+		HANDLE hProcessArch = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, m_CurrentProcessDetails.ProcessId);
+		if (hProcessArch) {
+			BOOL isWow64 = FALSE;
+			if (IsWow64Process(hProcessArch, &isWow64)) {
+				SYSTEM_INFO si = {};
+				GetNativeSystemInfo(&si);
+				if (si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 || si.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64) {
+					if (isWow64) {
+						arch = "x86";
+					} else {
+						arch = "x64";
+					}
+				} else {
+					arch = "x86";
+				}
+			}
+			CloseHandle(hProcessArch);
+		}
+		ImGui::Text("%s", arch.c_str());
 		ImGui::PopStyleColor();
 
 		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, m_CurrentProcessDetails.ProcessId);
