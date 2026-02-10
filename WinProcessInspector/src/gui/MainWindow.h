@@ -116,6 +116,8 @@ namespace GUI {
 		HWND m_hStatusBar;
 		HWND m_hToolbar;
 		HWND m_hSearchFilter;
+		HWND m_hSearchIcon;
+		HWND m_hSearchLabel;
 		HMENU m_hMenu;
 		HMENU m_hContextMenu;
 		HACCEL m_hAccel;

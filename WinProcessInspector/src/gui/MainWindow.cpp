@@ -50,6 +50,8 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	, m_hStatusBar(nullptr)
 	, m_hToolbar(nullptr)
 	, m_hSearchFilter(nullptr)
+	, m_hSearchIcon(nullptr)
+	, m_hSearchLabel(nullptr)
 	, m_hMenu(nullptr)
 	, m_hContextMenu(nullptr)
 	, m_hAccel(nullptr)
@@ -663,8 +665,7 @@ bool MainWindow::CreateToolbar() {
 }
 
 bool MainWindow::CreateSearchFilter() {
-	// Create search icon (static control with icon)
-	HWND hSearchIcon = CreateWindowExW(
+	m_hSearchIcon = CreateWindowExW(
 		0,
 		L"STATIC",
 		L"",
@@ -676,16 +677,14 @@ bool MainWindow::CreateSearchFilter() {
 		nullptr
 	);
 	
-	if (hSearchIcon) {
-		// Load search icon
+	if (m_hSearchIcon) {
 		HICON hIcon = static_cast<HICON>(LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_SEARCH), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
 		if (hIcon) {
-			SendMessage(hSearchIcon, STM_SETICON, reinterpret_cast<WPARAM>(hIcon), 0);
+			SendMessage(m_hSearchIcon, STM_SETICON, reinterpret_cast<WPARAM>(hIcon), 0);
 		}
 	}
 
-	// Create label
-	HWND hLabel = CreateWindowExW(
+	m_hSearchLabel = CreateWindowExW(
 		0,
 		L"STATIC",
 		L"Filter:",
@@ -701,7 +700,7 @@ bool MainWindow::CreateSearchFilter() {
 	m_hSearchFilter = CreateWindowExW(
 		WS_EX_CLIENTEDGE,
 		L"EDIT",
-		L"Search...",
+		L"",
 		WS_VISIBLE | WS_CHILD | ES_LEFT | ES_AUTOHSCROLL,
 		70, 0, 200, 22,
 		m_hWnd,
@@ -813,9 +812,21 @@ LRESULT MainWindow::OnSize() {
 		}
 		SetWindowPos(m_hSearchFilter, nullptr, 0, yPos, 200, searchHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 		ShowWindow(m_hSearchFilter, SW_SHOW);
+		if (m_hSearchIcon && IsWindow(m_hSearchIcon)) {
+			ShowWindow(m_hSearchIcon, SW_SHOW);
+		}
+		if (m_hSearchLabel && IsWindow(m_hSearchLabel)) {
+			ShowWindow(m_hSearchLabel, SW_SHOW);
+		}
 		yPos += searchHeight;
 	} else if (m_hSearchFilter && IsWindow(m_hSearchFilter)) {
 		ShowWindow(m_hSearchFilter, SW_HIDE);
+		if (m_hSearchIcon && IsWindow(m_hSearchIcon)) {
+			ShowWindow(m_hSearchIcon, SW_HIDE);
+		}
+		if (m_hSearchLabel && IsWindow(m_hSearchLabel)) {
+			ShowWindow(m_hSearchLabel, SW_HIDE);
+		}
 	}
 
 	// Resize status bar first (it needs to know its size)
@@ -1206,22 +1217,19 @@ int MainWindow::GetProcessIconIndex(const std::wstring& imagePath) {
 		return it->second;
 	}
 
-	// Extract icon using Shell API (non-blocking, uses cached file info)
 	SHFILEINFOW sfi = {};
 	DWORD_PTR result = SHGetFileInfoW(
 		imagePath.c_str(),
 		FILE_ATTRIBUTE_NORMAL,
 		&sfi,
 		sizeof(sfi),
-		SHGFI_ICON | SHGFI_SMALLICON | SHGFI_SYSICONINDEX
+		SHGFI_ICON | SHGFI_SMALLICON
 	);
 
 	int iconIndex = m_DefaultIconIndex;
 	if (result && sfi.hIcon) {
-		// Add icon to image list
 		iconIndex = ImageList_AddIcon(m_hProcessIconList, sfi.hIcon);
 		if (iconIndex >= 0) {
-			// Cache the index
 			m_IconCache[imagePath] = iconIndex;
 		} else {
 			iconIndex = m_DefaultIconIndex;
@@ -1811,8 +1819,7 @@ bool MainWindow::ExportToText(const std::wstring& filePath) {
 void MainWindow::OnViewAutoRefresh() {
 	m_AutoRefresh = !m_AutoRefresh;
 	
-	// Get View menu (index 1: File=0, View=1, Help=2)
-	HMENU hViewMenu = GetSubMenu(m_hMenu, 1);
+	HMENU hViewMenu = GetSubMenu(m_hMenu, 2);
 	if (hViewMenu) {
 		CheckMenuItem(hViewMenu, IDM_VIEW_AUTOREFRESH, m_AutoRefresh ? MF_CHECKED : MF_UNCHECKED);
 	}
