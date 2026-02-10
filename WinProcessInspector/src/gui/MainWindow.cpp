@@ -58,6 +58,8 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	, m_SortAscending(true)
 	, m_AutoRefresh(false)
 	, m_ToolbarVisible(true)
+	, m_SearchBarVisible(true)
+	, m_TreeViewEnabled(true)
 	, m_RefreshTimerId(0)
 	, m_IsRefreshing(false)
 	, m_LastRefreshTime(0)
@@ -332,7 +334,7 @@ bool MainWindow::CreateMenuBar() {
 	}
 	AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_REFRESH, L"&Refresh\tF5");
 	AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
-	AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_EXPORT, L"&Export...");
+	AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_EXPORT, L"&Export Process List (CSV)...");
 	AppendMenuW(hFileMenu, MF_SEPARATOR, 0, nullptr);
 	AppendMenuW(hFileMenu, MF_STRING, IDM_FILE_EXIT, L"E&xit");
 
@@ -345,16 +347,15 @@ bool MainWindow::CreateMenuBar() {
 		Logger::GetInstance().LogWarning("Failed to create Process menu. Error: " + std::to_string(error));
 		return false;
 	}
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_PROPERTIES, L"&Properties");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_PROPERTIES, L"&Properties");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_FILE_LOCATION, L"Open File &Location");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_SEARCH_ONLINE, L"Search &Online");
 	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_SUSPEND, L"&Suspend Process");
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_RESUME, L"&Resume Process");
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_TERMINATE, L"&Terminate Process");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_INJECT_DLL, L"Inject &DLL...");
 	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_INJECT_DLL, L"Inject &DLL...");
-	AppendMenuW(hProcessMenu, MF_SEPARATOR, 0, nullptr);
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_FILE_LOCATION, L"Open File &Location");
-	AppendMenuW(hProcessMenu, MF_STRING, IDM_PROCESS_SEARCH_ONLINE, L"Search &Online");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_SUSPEND, L"&Suspend");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_RESUME, L"&Resume");
+	AppendMenuW(hProcessMenu, MF_STRING | MF_GRAYED, IDM_PROCESS_TERMINATE, L"&Terminate");
 
 	HMENU hViewMenu = CreatePopupMenu();
 	if (!hViewMenu) {
@@ -365,7 +366,13 @@ bool MainWindow::CreateMenuBar() {
 		Logger::GetInstance().LogWarning("Failed to create View menu. Error: " + std::to_string(error));
 		return false;
 	}
+	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_TREEVIEW, L"&Tree View");
+	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_TOOLBAR, L"&Toolbar");
+	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_SEARCHBAR, L"&Search Bar");
+	AppendMenuW(hViewMenu, MF_SEPARATOR, 0, nullptr);
 	AppendMenuW(hViewMenu, MF_STRING | MF_CHECKED, IDM_VIEW_AUTOREFRESH, L"&Auto Refresh");
+	AppendMenuW(hViewMenu, MF_SEPARATOR, 0, nullptr);
+	AppendMenuW(hViewMenu, MF_STRING, IDM_VIEW_COLUMNS, L"&Columns...");
 
 	HMENU hHelpMenu = CreatePopupMenu();
 	if (!hHelpMenu) {
@@ -376,7 +383,9 @@ bool MainWindow::CreateMenuBar() {
 		Logger::GetInstance().LogWarning("Failed to create Help menu. Error: " + std::to_string(error));
 		return false;
 	}
-	AppendMenuW(hHelpMenu, MF_STRING, IDM_HELP_ABOUT, L"&About...");
+	AppendMenuW(hHelpMenu, MF_STRING, IDM_HELP_ABOUT, L"&About WinProcessInspector");
+	AppendMenuW(hHelpMenu, MF_SEPARATOR, 0, nullptr);
+	AppendMenuW(hHelpMenu, MF_STRING, IDM_HELP_GITHUB, L"&GitHub Repository");
 
 	AppendMenuW(m_hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hFileMenu), L"&File");
 	AppendMenuW(m_hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hProcessMenu), L"&Process");
@@ -692,9 +701,9 @@ bool MainWindow::CreateSearchFilter() {
 	m_hSearchFilter = CreateWindowExW(
 		WS_EX_CLIENTEDGE,
 		L"EDIT",
-		L"",
+		L"Search...",
 		WS_VISIBLE | WS_CHILD | ES_LEFT | ES_AUTOHSCROLL,
-		70, 0, 300, 22,
+		70, 0, 200, 22,
 		m_hWnd,
 		reinterpret_cast<HMENU>(IDC_SEARCH_FILTER),
 		m_hInstance,
@@ -705,8 +714,7 @@ bool MainWindow::CreateSearchFilter() {
 		return false;
 	}
 
-	// Set placeholder text hint (via EM_SETCUEBANNER if available)
-	SendMessage(m_hSearchFilter, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search by name or PID..."));
+	SendMessage(m_hSearchFilter, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search..."));
 
 	return true;
 }
@@ -797,16 +805,17 @@ LRESULT MainWindow::OnSize() {
 		}
 	}
 
-	// Resize search filter (always visible, below toolbar)
-	int searchHeight = 22; // Default height
-	if (m_hSearchFilter && IsWindow(m_hSearchFilter)) {
+	int searchHeight = 22;
+	if (m_hSearchFilter && IsWindow(m_hSearchFilter) && m_SearchBarVisible) {
 		RECT rcSearch;
 		if (GetWindowRect(m_hSearchFilter, &rcSearch)) {
 			searchHeight = rcSearch.bottom - rcSearch.top;
 		}
-		SetWindowPos(m_hSearchFilter, nullptr, 0, yPos, rc.right - rc.left, searchHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+		SetWindowPos(m_hSearchFilter, nullptr, 0, yPos, 200, searchHeight, SWP_NOZORDER | SWP_NOACTIVATE);
 		ShowWindow(m_hSearchFilter, SW_SHOW);
 		yPos += searchHeight;
+	} else if (m_hSearchFilter && IsWindow(m_hSearchFilter)) {
+		ShowWindow(m_hSearchFilter, SW_HIDE);
 	}
 
 	// Resize status bar first (it needs to know its size)
@@ -861,7 +870,7 @@ LRESULT MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 			OnFileExport();
 			break;
 		case IDM_FILE_EXIT:
-			PostMessage(m_hWnd, WM_CLOSE, 0, 0);
+			OnFileExit();
 			break;
 		case IDM_PROCESS_PROPERTIES:
 			if (m_SelectedProcessId) {
@@ -912,14 +921,26 @@ LRESULT MainWindow::OnCommand(WPARAM wParam, LPARAM lParam) {
 				MessageBoxW(m_hWnd, L"Please select a process first.", L"Search Online", MB_OK | MB_ICONINFORMATION);
 			}
 			break;
-		case IDM_VIEW_AUTOREFRESH:
-			OnViewAutoRefresh();
+		case IDM_VIEW_TREEVIEW:
+			OnViewTreeView();
 			break;
 		case IDM_VIEW_TOOLBAR:
 			OnViewToolbar();
 			break;
+		case IDM_VIEW_SEARCHBAR:
+			OnViewSearchBar();
+			break;
+		case IDM_VIEW_AUTOREFRESH:
+			OnViewAutoRefresh();
+			break;
+		case IDM_VIEW_COLUMNS:
+			OnViewColumns();
+			break;
 		case IDM_HELP_ABOUT:
 			OnHelpAbout();
+			break;
+		case IDM_HELP_GITHUB:
+			OnHelpGitHub();
 			break;
 		case IDC_SEARCH_FILTER:
 			if (HIWORD(wParam) == EN_CHANGE) {
@@ -1023,8 +1044,7 @@ LRESULT MainWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
 		} else if (pnmh->code == LVN_COLUMNCLICK) {
 			NMLISTVIEW* pnmv = reinterpret_cast<NMLISTVIEW*>(lParam);
 			SortProcessList(pnmv->iSubItem, m_SortColumn == pnmv->iSubItem ? !m_SortAscending : true);
-		} else if (pnmh->code == NM_CLICK) {
-			// Handle expand/collapse on name column click
+		} else if (pnmh->code == NM_CLICK && m_TreeViewEnabled) {
 			NMLISTVIEW* pnmv = reinterpret_cast<NMLISTVIEW*>(lParam);
 			if (pnmv->iSubItem == COL_NAME) {
 				LVITEMW lvi = {};
@@ -1033,7 +1053,6 @@ LRESULT MainWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
 				ListView_GetItem(m_hProcessListView, &lvi);
 				DWORD processId = static_cast<DWORD>(lvi.lParam);
 				
-				// Toggle expansion state
 				m_ExpandedProcesses[processId] = !m_ExpandedProcesses[processId];
 				UpdateProcessList();
 			}
@@ -1080,8 +1099,7 @@ void MainWindow::RefreshProcessList() {
 		return;
 	}
 
-	// Throttle refresh rate (minimum 1 second between refreshes)
-	DWORD currentTime = GetTickCount();
+	ULONGLONG currentTime = GetTickCount64();
 	if (m_LastRefreshTime > 0 && (currentTime - m_LastRefreshTime) < 1000) {
 		return;
 	}
@@ -1354,42 +1372,53 @@ void MainWindow::UpdateProcessList() {
 
 	ListView_DeleteAllItems(m_hProcessListView);
 
-	// Build hierarchical structure (which handles filtering internally)
-	BuildProcessHierarchy();
+	if (m_TreeViewEnabled) {
+		BuildProcessHierarchy();
+	} else {
+		m_FilteredProcesses.clear();
+		if (m_FilterText.empty()) {
+			m_FilteredProcesses = m_Processes;
+		} else {
+			std::wstring filterLower = m_FilterText;
+			std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::towlower);
+			for (const auto& proc : m_Processes) {
+				std::wstring nameW(proc.ProcessName.begin(), proc.ProcessName.end());
+				std::transform(nameW.begin(), nameW.end(), nameW.begin(), ::towlower);
+				if (nameW.find(filterLower) != std::wstring::npos) {
+					m_FilteredProcesses.push_back(proc);
+				}
+			}
+		}
+	}
 
-	// Use filtered processes for display (already in hierarchical order)
 	for (size_t i = 0; i < m_FilteredProcesses.size(); ++i) {
 		const auto& proc = m_FilteredProcesses[i];
 
-		// Get process image path and icon
 		std::wstring imagePath = GetProcessImagePath(proc.ProcessId);
 		int iconIndex = GetProcessIconIndex(imagePath);
 
-		// Get tree depth for this process (default to 0 if not found)
-		int depth = 0;
-		auto depthIt = m_ProcessDepth.find(proc.ProcessId);
-		if (depthIt != m_ProcessDepth.end()) {
-			depth = depthIt->second;
-		}
-		
-		// Check if process has children (from full process list)
-		bool hasChildren = m_ProcessChildren.find(proc.ProcessId) != m_ProcessChildren.end() && 
-		                  !m_ProcessChildren[proc.ProcessId].empty();
-		
-		// Build display name with proper indentation and expand/collapse indicator
 		std::wstring nameWStr(proc.ProcessName.begin(), proc.ProcessName.end());
 		std::wstring displayName;
 		
-		// Add indentation based on depth (4 spaces per level)
-		for (int d = 0; d < depth; ++d) {
-			displayName += L"    ";
-		}
-		
-		// Add expand/collapse indicator
-		if (hasChildren) {
-			displayName += m_ExpandedProcesses[proc.ProcessId] ? L"[-] " : L"[+] ";
-		} else {
-			displayName += L"    "; // Indent for visual alignment
+		if (m_TreeViewEnabled) {
+			int depth = 0;
+			auto depthIt = m_ProcessDepth.find(proc.ProcessId);
+			if (depthIt != m_ProcessDepth.end()) {
+				depth = depthIt->second;
+			}
+			
+			bool hasChildren = m_ProcessChildren.find(proc.ProcessId) != m_ProcessChildren.end() && 
+			                  !m_ProcessChildren[proc.ProcessId].empty();
+			
+			for (int d = 0; d < depth; ++d) {
+				displayName += L"    ";
+			}
+			
+			if (hasChildren) {
+				displayName += m_ExpandedProcesses[proc.ProcessId] ? L"[-] " : L"[+] ";
+			} else {
+				displayName += L"    ";
+			}
 		}
 		displayName += nameWStr;
 
@@ -1535,6 +1564,7 @@ void MainWindow::OnProcessListSelectionChanged() {
 	} else {
 		m_SelectedProcessId = 0;
 	}
+	UpdateProcessMenuState();
 }
 
 void MainWindow::ShowProcessContextMenu(int x, int y) {
@@ -1557,6 +1587,10 @@ void MainWindow::ShowProcessContextMenu(int x, int y) {
 
 void MainWindow::OnFileRefresh() {
 	RefreshProcessList();
+}
+
+void MainWindow::OnFileExit() {
+	PostMessage(m_hWnd, WM_CLOSE, 0, 0);
 }
 
 void MainWindow::OnFileExport() {
@@ -1598,10 +1632,12 @@ void MainWindow::OnFileExport() {
 		std::wostringstream oss;
 		oss << L"Process list exported successfully to:\n" << filePath;
 		MessageBoxW(m_hWnd, oss.str().c_str(), L"Export Successful", MB_OK | MB_ICONINFORMATION);
-		Logger::GetInstance().LogInfo("Exported process list to: " + std::string(filePath.begin(), filePath.end()));
+		std::string filePathA(filePath.begin(), filePath.end());
+		Logger::GetInstance().LogInfo("Exported process list to: " + filePathA);
 	} else {
 		MessageBoxW(m_hWnd, L"Failed to export process list.", L"Export Failed", MB_OK | MB_ICONERROR);
-		Logger::GetInstance().LogError("Failed to export process list to: " + std::string(filePath.begin(), filePath.end()));
+		std::string filePathA(filePath.begin(), filePath.end());
+		Logger::GetInstance().LogError("Failed to export process list to: " + filePathA);
 	}
 }
 
@@ -1791,22 +1827,76 @@ void MainWindow::OnViewAutoRefresh() {
 	}
 }
 
+void MainWindow::OnViewTreeView() {
+	m_TreeViewEnabled = !m_TreeViewEnabled;
+	
+	HMENU hViewMenu = GetSubMenu(m_hMenu, 2);
+	if (hViewMenu) {
+		CheckMenuItem(hViewMenu, IDM_VIEW_TREEVIEW, m_TreeViewEnabled ? MF_CHECKED : MF_UNCHECKED);
+	}
+	
+	UpdateProcessList();
+}
+
 void MainWindow::OnViewToolbar() {
 	m_ToolbarVisible = !m_ToolbarVisible;
 
-	HMENU hViewMenu = GetSubMenu(m_hMenu, 1);
+	HMENU hViewMenu = GetSubMenu(m_hMenu, 2);
 	if (hViewMenu) {
 		CheckMenuItem(hViewMenu, IDM_VIEW_TOOLBAR, m_ToolbarVisible ? MF_CHECKED : MF_UNCHECKED);
 	}
 
 	if (m_hToolbar && IsWindow(m_hToolbar)) {
 		ShowWindow(m_hToolbar, m_ToolbarVisible ? SW_SHOW : SW_HIDE);
-		SendMessage(m_hWnd, WM_SIZE, 0, 0); // Trigger layout update
+		SendMessage(m_hWnd, WM_SIZE, 0, 0);
 	}
+}
+
+void MainWindow::OnViewSearchBar() {
+	m_SearchBarVisible = !m_SearchBarVisible;
+	
+	HMENU hViewMenu = GetSubMenu(m_hMenu, 2);
+	if (hViewMenu) {
+		CheckMenuItem(hViewMenu, IDM_VIEW_SEARCHBAR, m_SearchBarVisible ? MF_CHECKED : MF_UNCHECKED);
+	}
+	
+	if (m_hSearchFilter && IsWindow(m_hSearchFilter)) {
+		ShowWindow(m_hSearchFilter, m_SearchBarVisible ? SW_SHOW : SW_HIDE);
+		SendMessage(m_hWnd, WM_SIZE, 0, 0);
+	}
+}
+
+void MainWindow::OnViewColumns() {
+	MessageBoxW(m_hWnd, L"Column chooser dialog will be implemented in a future update.", L"Columns", MB_OK | MB_ICONINFORMATION);
 }
 
 void MainWindow::OnHelpAbout() {
 	MessageBoxW(m_hWnd, L"WinProcessInspector\n\nA professional Windows system inspection tool.", L"About WinProcessInspector", MB_OK | MB_ICONINFORMATION);
+}
+
+void MainWindow::OnHelpGitHub() {
+	HINSTANCE result = ShellExecuteW(m_hWnd, L"open", L"https://github.com/PhilipPanda/WinProcessInspector", nullptr, nullptr, SW_SHOWNORMAL);
+	if (reinterpret_cast<INT_PTR>(result) <= 32) {
+		DWORD error = GetLastError();
+		std::wostringstream oss;
+		oss << L"Failed to open GitHub repository.\n\nError code: " << error;
+		MessageBoxW(m_hWnd, oss.str().c_str(), L"Error", MB_OK | MB_ICONERROR);
+	}
+}
+
+void MainWindow::UpdateProcessMenuState() {
+	HMENU hProcessMenu = GetSubMenu(m_hMenu, 1);
+	if (!hProcessMenu) return;
+	
+	bool hasSelection = (m_SelectedProcessId != 0);
+	
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_PROPERTIES, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_FILE_LOCATION, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_SEARCH_ONLINE, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_INJECT_DLL, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_SUSPEND, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_RESUME, hasSelection ? MF_ENABLED : MF_GRAYED);
+	EnableMenuItem(hProcessMenu, IDM_PROCESS_TERMINATE, hasSelection ? MF_ENABLED : MF_GRAYED);
 }
 
 void MainWindow::ShowProcessProperties(DWORD processId) {
@@ -2149,9 +2239,13 @@ void MainWindow::CopyProcessId(DWORD processId) {
 		HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (pidStr.length() + 1) * sizeof(WCHAR));
 		if (hMem) {
 			LPWSTR pMem = static_cast<LPWSTR>(GlobalLock(hMem));
-			wcscpy_s(pMem, pidStr.length() + 1, pidStr.c_str());
-			GlobalUnlock(hMem);
-			SetClipboardData(CF_UNICODETEXT, hMem);
+			if (pMem) {
+				wcscpy_s(pMem, pidStr.length() + 1, pidStr.c_str());
+				GlobalUnlock(hMem);
+				SetClipboardData(CF_UNICODETEXT, hMem);
+			} else {
+				GlobalFree(hMem);
+			}
 		}
 		CloseClipboard();
 	}
@@ -2169,9 +2263,14 @@ void MainWindow::CopyProcessName(DWORD processId) {
 			EmptyClipboard();
 			HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (nameWStr.length() + 1) * sizeof(WCHAR));
 			if (hMem) {
-				LPWSTR pMem = static_cast<LPWSTR>(GlobalLock(hMem));
+			LPWSTR pMem = static_cast<LPWSTR>(GlobalLock(hMem));
+			if (pMem) {
 				wcscpy_s(pMem, nameWStr.length() + 1, nameWStr.c_str());
 				GlobalUnlock(hMem);
+				SetClipboardData(CF_UNICODETEXT, hMem);
+			} else {
+				GlobalFree(hMem);
+			}
 				SetClipboardData(CF_UNICODETEXT, hMem);
 			}
 			CloseClipboard();
@@ -2212,8 +2311,8 @@ std::wstring MainWindow::FormatTime(const FILETIME& ft) {
 }
 
 void MainWindow::CalculateCpuUsage() {
-	DWORD currentTime = GetTickCount();
-	DWORD timeDelta = 0;
+	ULONGLONG currentTime = GetTickCount64();
+	ULONGLONG timeDelta = 0;
 	
 	if (m_LastCpuUpdateTime > 0) {
 		timeDelta = currentTime - m_LastCpuUpdateTime;

@@ -73,9 +73,14 @@ namespace GUI {
 		bool ExportToJSON(const std::wstring& filePath);
 		bool ExportToText(const std::wstring& filePath);
 		
-		void OnViewAutoRefresh();
+		void OnViewTreeView();
 		void OnViewToolbar();
+		void OnViewSearchBar();
+		void OnViewAutoRefresh();
+		void OnViewColumns();
 		void OnHelpAbout();
+		void OnHelpGitHub();
+		void UpdateProcessMenuState();
 
 		// Process operations
 		void ShowProcessProperties(DWORD processId);
@@ -128,16 +133,18 @@ namespace GUI {
 		std::unordered_map<DWORD, DWORD> m_ProcessCpuTimePrev; // PID -> previous CPU time snapshot
 		std::unordered_map<DWORD, double> m_ProcessCpuPercent; // PID -> CPU usage percentage
 		std::unordered_map<DWORD, SIZE_T> m_ProcessMemory; // PID -> private memory bytes
-		DWORD m_LastCpuUpdateTime; // Last time CPU was calculated
+		ULONGLONG m_LastCpuUpdateTime; // Last time CPU was calculated
 		std::unordered_map<DWORD, int> m_ProcessDepth; // PID -> tree depth for display
 		DWORD m_SelectedProcessId;
 		int m_SortColumn;
 		bool m_SortAscending;
 		bool m_AutoRefresh;
 		bool m_ToolbarVisible;
+		bool m_SearchBarVisible;
+		bool m_TreeViewEnabled;
 		UINT_PTR m_RefreshTimerId;
 		bool m_IsRefreshing;
-		DWORD m_LastRefreshTime;
+		ULONGLONG m_LastRefreshTime;
 		std::wstring m_FilterText;
 		
 		// Icon cache for process icons
