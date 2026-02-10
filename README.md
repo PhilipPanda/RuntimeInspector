@@ -13,7 +13,7 @@
 
 ---
 
-### WinProcessInspector is a professional Windows system inspection tool for inspecting, monitoring, and analyzing live processes, threads, memory, handles, and system resources.
+### WinProcessInspector is a Windows system inspection tool for inspecting, monitoring, and analyzing live processes, threads, memory, handles, and system resources.
 
 ---
 
@@ -72,17 +72,3 @@ WinProcessInspector is built with a clean, layered architecture:
 ### 3. Use the Tool
 - Select a process from the list to inspect its runtime state.
 - Access modules, threads, memory, handles, and security information through the native UI.
-
----
-
-## Requirements
-
-- Windows 10 or later
-- Visual Studio 2019 or later with C++ Desktop Development workload
-- Windows SDK 10.0
-
----
-
-## License
-
-See LICENSE file for details.
