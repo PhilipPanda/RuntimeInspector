@@ -14,9 +14,6 @@
 namespace WinProcessInspector {
 namespace GUI {
 
-	/**
-	 * Process properties dialog - tabbed interface
-	 */
 	class ProcessPropertiesDialog {
 	public:
 		ProcessPropertiesDialog(HINSTANCE hInstance, HWND hParent);
@@ -26,7 +23,6 @@ namespace GUI {
 		void Close();
 
 	private:
-		// Dialog creation
 		bool CreateDialogWindow();
 		bool CreateTabs();
 		void CreateGeneralTab();
@@ -40,7 +36,6 @@ namespace GUI {
 		void CreateNetworkTab();
 		void CreateServicesTab();
 
-		// Message handling
 		static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 		LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 		LRESULT OnCreate();
@@ -49,7 +44,6 @@ namespace GUI {
 		LRESULT OnClose();
 		LRESULT OnSize();
 
-		// Tab management
 		void OnTabChanged(int tabIndex);
 		void RefreshCurrentTab();
 		void RefreshGeneralTab();

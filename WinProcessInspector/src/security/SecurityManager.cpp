@@ -24,7 +24,6 @@ bool SecurityManager::OpenCurrentProcessToken() {
 
 	HANDLE hProcess = GetCurrentProcess();
 	if (!::OpenProcessToken(hProcess, TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &m_hToken)) {
-		// Try impersonating self if no token exists
 		if (GetLastError() == ERROR_NO_TOKEN) {
 			if (!ImpersonateSelf(SecurityImpersonation)) {
 				return false;

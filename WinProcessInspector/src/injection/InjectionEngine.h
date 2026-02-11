@@ -6,9 +6,7 @@
 namespace WinProcessInspector {
 namespace Injection {
 
-	bool InjectViaCreateRemoteThread(LPCSTR DllPath, HANDLE hProcess);
 	bool InjectViaNtCreateThreadEx(LPCSTR DllPath, HANDLE hProcess);
-	bool InjectViaRtlCreateUserThread(HANDLE hProcess, LPCSTR DllPath);
 	bool InjectViaQueueUserAPC(LPCSTR DllPath, HANDLE hProcess, DWORD processId);
 	bool InjectViaSetWindowsHookEx(DWORD processId, LPCSTR dllPath);
 

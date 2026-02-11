@@ -4,38 +4,40 @@ namespace WinProcessInspector {
 namespace Injection {
 
 bool InjectViaNtCreateThreadEx(LPCSTR DllPath, HANDLE hProcess) {
+	if (!DllPath || !hProcess) {
+		return false;
+	}
+
 	HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
 	if (!hKernel32) {
 		return false;
 	}
-	LPVOID LoadLibraryAddr = (LPVOID)GetProcAddress(hKernel32, "LoadLibraryA");
-
+	
+	LPVOID LoadLibraryAddr = GetProcAddress(hKernel32, "LoadLibraryA");
 	if (!LoadLibraryAddr) {
 		return false;
 	}
 
-	LPVOID pDllPath = VirtualAllocEx(hProcess, 0, strlen(DllPath), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-
+	SIZE_T dllPathSize = strlen(DllPath) + 1;
+	LPVOID pDllPath = VirtualAllocEx(hProcess, nullptr, dllPathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 	if (!pDllPath) {
 		return false;
 	}
 
-	BOOL Written = WriteProcessMemory(hProcess, pDllPath, (LPVOID)DllPath, strlen(DllPath), NULL);
-
-	if (!Written) {
+	SIZE_T bytesWritten = 0;
+	BOOL written = WriteProcessMemory(hProcess, pDllPath, DllPath, dllPathSize, &bytesWritten);
+	if (!written || bytesWritten != dllPathSize) {
 		VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
 		return false;
 	}
 
 	HMODULE modNtDll = GetModuleHandleA("ntdll.dll");
-
 	if (!modNtDll) {
 		VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
 		return false;
 	}
 
-	lpNtCreateThreadEx funNtCreateThreadEx = (lpNtCreateThreadEx)GetProcAddress(modNtDll, "NtCreateThreadEx");
-
+	lpNtCreateThreadEx funNtCreateThreadEx = reinterpret_cast<lpNtCreateThreadEx>(GetProcAddress(modNtDll, "NtCreateThreadEx"));
 	if (!funNtCreateThreadEx) {
 		VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
 		return false;
@@ -65,26 +67,29 @@ bool InjectViaNtCreateThreadEx(LPCSTR DllPath, HANDLE hProcess) {
 		THREAD_ALL_ACCESS,
 		nullptr,
 		hProcess,
-		(LPTHREAD_START_ROUTINE)LoadLibraryAddr,
+		LoadLibraryAddr,
 		pDllPath,
-		NULL,
+		0,
 		0,
 		0,
 		0,
 		nullptr
 	);
 
-	if (!hThread) {
+	if (!hThread || status < 0) {
 		VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
 		return false;
 	}
 
-	WaitForSingleObject(hThread, INFINITE);
-
-	VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
+	WaitForSingleObject(hThread, 5000);
+	
+	DWORD exitCode = 0;
+	GetExitCodeThread(hThread, &exitCode);
+	
 	CloseHandle(hThread);
+	VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
 
-	return true;
+	return exitCode != 0;
 }
 
 }

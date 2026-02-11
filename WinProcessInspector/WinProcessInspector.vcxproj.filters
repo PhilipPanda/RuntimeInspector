@@ -38,13 +38,7 @@
     <ClCompile Include="src\core\ProcessManager.cpp">
       <Filter>Source Files\core</Filter>
     </ClCompile>
-    <ClCompile Include="src\injection\thread_creation\CreateRemoteThreadInjector.cpp">
-      <Filter>Source Files\injection\thread_creation</Filter>
-    </ClCompile>
     <ClCompile Include="src\injection\thread_creation\NtCreateThreadExInjector.cpp">
-      <Filter>Source Files\injection\thread_creation</Filter>
-    </ClCompile>
-    <ClCompile Include="src\injection\thread_creation\RtlCreateUserThreadInjector.cpp">
       <Filter>Source Files\injection\thread_creation</Filter>
     </ClCompile>
     <ClCompile Include="src\injection\apc_based\QueueUserAPCInjector.cpp">

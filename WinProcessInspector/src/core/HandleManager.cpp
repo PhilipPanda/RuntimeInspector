@@ -1,4 +1,3 @@
-// NT API includes - must define WIN32_NO_STATUS before windows.h
 #define WIN32_NO_STATUS
 #include <Windows.h>
 #undef WIN32_NO_STATUS
@@ -16,7 +15,6 @@
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "ntdll.lib")
 
-// NT API structures and constants
 #define SystemHandleInformation 16
 
 typedef struct _SYSTEM_HANDLE_INFORMATION {
@@ -34,7 +32,6 @@ typedef struct _SYSTEM_HANDLE_INFORMATION_EX {
 	SYSTEM_HANDLE_INFORMATION Information[1];
 } SYSTEM_HANDLE_INFORMATION_EX, *PSYSTEM_HANDLE_INFORMATION_EX;
 
-// Object type names mapping (common types)
 static const std::map<WORD, std::wstring> ObjectTypeNames = {
 	{ 2, L"Type" },
 	{ 3, L"Directory" },
@@ -92,7 +89,6 @@ std::vector<HandleInfo> HandleManager::EnumerateHandles(DWORD processId) const {
 		return std::vector<HandleInfo>();
 	}
 
-	// Filter handles for the specific process
 	std::vector<HandleInfo> processHandles;
 	for (const auto& handle : allHandles) {
 		if (handle.ProcessId == processId) {
@@ -115,7 +111,6 @@ std::wstring HandleManager::GetObjectTypeName(WORD typeIndex) const {
 		return it->second;
 	}
 
-	// Try to query object type name from system
 	HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
 	if (hNtdll) {
 		typedef NTSTATUS (WINAPI* pNtQueryObject)(
@@ -129,20 +124,16 @@ std::wstring HandleManager::GetObjectTypeName(WORD typeIndex) const {
 		pNtQueryObject NtQueryObject = reinterpret_cast<pNtQueryObject>(
 			GetProcAddress(hNtdll, "NtQueryObject"));
 		if (NtQueryObject) {
-			// ObjectTypeInformation = 2
 			ULONG returnLength = 0;
 			NtQueryObject(nullptr, 2, nullptr, 0, &returnLength);
 			if (returnLength > 0) {
 				std::vector<BYTE> buffer(returnLength);
 				if (NT_SUCCESS(NtQueryObject(nullptr, 2, buffer.data(), returnLength, &returnLength))) {
-					// Parse object type information
-					// This is complex and requires parsing UNICODE_STRING structures
 				}
 			}
 		}
 	}
 
-	// Fallback to type index
 	std::wostringstream oss;
 	oss << L"Type" << typeIndex;
 	return oss.str();
@@ -168,7 +159,6 @@ std::wstring HandleManager::GetObjectName(HANDLE hProcess, HANDLE handleValue) c
 		return L"";
 	}
 
-	// ObjectNameInformation = 1
 	ULONG returnLength = 0;
 	NTSTATUS status = NtQueryObject(handleValue, 1, nullptr, 0, &returnLength);
 	if (status != STATUS_INFO_LENGTH_MISMATCH && status != STATUS_BUFFER_TOO_SMALL) {
@@ -185,7 +175,6 @@ std::wstring HandleManager::GetObjectName(HANDLE hProcess, HANDLE handleValue) c
 		return L"";
 	}
 
-	// Parse UNICODE_STRING structure
 	UNICODE_STRING* us = reinterpret_cast<UNICODE_STRING*>(buffer.data());
 	if (us && us->Buffer && us->Length > 0) {
 		return std::wstring(us->Buffer, us->Length / sizeof(WCHAR));
@@ -213,7 +202,6 @@ bool HandleManager::QuerySystemHandles(std::vector<HandleInfo>& handles) const {
 		return false;
 	}
 
-	// Query required buffer size
 	ULONG bufferSize = 0;
 	NTSTATUS status = NtQuerySystemInformation(
 		SystemHandleInformation,
@@ -226,8 +214,7 @@ bool HandleManager::QuerySystemHandles(std::vector<HandleInfo>& handles) const {
 		return false;
 	}
 
-	// Allocate buffer
-	bufferSize += 1024 * 1024; // Add extra space
+	bufferSize += 1024 * 1024;
 	std::vector<BYTE> buffer(bufferSize);
 
 	status = NtQuerySystemInformation(
@@ -251,7 +238,6 @@ bool HandleManager::QuerySystemHandles(std::vector<HandleInfo>& handles) const {
 		return true;
 	}
 
-	// Parse handles
 	for (ULONG_PTR i = 0; i < handleCount; ++i) {
 		SYSTEM_HANDLE_INFORMATION& sysHandle = handleInfo->Information[i];
 
@@ -261,13 +247,10 @@ bool HandleManager::QuerySystemHandles(std::vector<HandleInfo>& handles) const {
 		info.AccessMask = sysHandle.GrantedAccess;
 		info.ObjectAddress = reinterpret_cast<ULONG_PTR>(sysHandle.Object);
 
-		// Convert handle value (it's actually an index in the process handle table)
 		info.HandleValue = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(sysHandle.Handle));
 
-		// Get object type name
 		info.ObjectTypeName = GetObjectTypeName(sysHandle.ObjectTypeNumber);
 
-		// Try to get object name (requires opening the process and duplicating the handle)
 		HandleWrapper hProcess(::OpenProcess(PROCESS_DUP_HANDLE, FALSE, sysHandle.ProcessId));
 		if (hProcess.IsValid()) {
 			HANDLE hDup = nullptr;

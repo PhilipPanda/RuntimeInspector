@@ -166,9 +166,7 @@
     <ClCompile Include="src\security\SecurityManager.cpp" />
     <ClCompile Include="src\utils\Logger.cpp" />
     <ClCompile Include="src\utils\ErrorHandler.cpp" />
-    <ClCompile Include="src\injection\thread_creation\CreateRemoteThreadInjector.cpp" />
     <ClCompile Include="src\injection\thread_creation\NtCreateThreadExInjector.cpp" />
-    <ClCompile Include="src\injection\thread_creation\RtlCreateUserThreadInjector.cpp" />
     <ClCompile Include="src\injection\apc_based\QueueUserAPCInjector.cpp" />
     <ClCompile Include="src\injection\hook_based\SetWindowsHookExInjector.cpp" />
   </ItemGroup>

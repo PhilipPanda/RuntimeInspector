@@ -1,13 +1,11 @@
 #ifndef RESOURCE_H
 #define RESOURCE_H
 
-// Icon resource IDs (locked per directive)
 #define IDI_APP_ICON 101
 #define IDI_REFRESH 102
 #define IDI_PROPERTIES 103
 #define IDI_SEARCH 104
 
-// Menu IDs
 #define IDM_MAIN_MENU 200
 #define IDM_FILE_REFRESH 201
 #define IDM_FILE_EXPORT 202
@@ -27,7 +25,6 @@
 #define IDM_HELP_ABOUT 225
 #define IDM_HELP_GITHUB 226
 
-// Context menu IDs
 #define IDM_CONTEXT_PROPERTIES 301
 #define IDM_CONTEXT_TERMINATE 302
 #define IDM_CONTEXT_FILELOCATION 303
@@ -38,17 +35,14 @@
 #define IDM_CONTEXT_RESUME 308
 #define IDM_CONTEXT_SEARCH_ONLINE 309
 
-// Properties dialog buttons
 #define IDC_SEARCH_ONLINE_BUTTON 900
 
-// Injection method selection dialog
 #define IDD_INJECTION_METHOD 500
 #define IDC_INJECTION_METHOD_LIST 501
 #define IDC_INJECTION_METHOD_DESCRIPTION 502
 #define IDC_INJECTION_METHOD_OK 503
 #define IDC_INJECTION_METHOD_CANCEL 504
 
-// Column chooser dialog
 #define IDD_COLUMN_CHOOSER 550
 #define IDC_COLUMN_NAME 551
 #define IDC_COLUMN_PID 552
@@ -64,13 +58,11 @@
 #define IDC_COLUMN_COMMANDLINE 562
 #define IDC_COLUMN_COMPANY 563
 
-// Properties dialog additional tabs
 #define IDC_PERFORMANCE_TAB 470
 #define IDC_ENVIRONMENT_TAB 480
 #define IDC_NETWORK_TAB 490
 #define IDC_SERVICES_TAB 495
 
-// Dialog IDs
 #define IDD_PROPERTIES 400
 #define IDC_TAB_CONTROL 401
 #define IDC_GENERAL_TAB 410
@@ -80,23 +72,18 @@
 #define IDC_HANDLES_TAB 450
 #define IDC_SECURITY_TAB 460
 
-// ListView controls
 #define IDC_PROCESS_LIST 500
 #define IDC_THREAD_LIST 510
 #define IDC_MODULE_LIST 520
 #define IDC_MEMORY_LIST 530
 #define IDC_HANDLE_LIST 540
 
-// Search/Filter controls
 #define IDC_SEARCH_FILTER 600
 
-// Toolbar
 #define IDC_TOOLBAR 700
 
-// Menu accelerators
 #define IDA_MAIN_ACCEL 800
 
-// Timer IDs
 #define IDT_REFRESH_TIMER 1000
 
 #endif // RESOURCE_H

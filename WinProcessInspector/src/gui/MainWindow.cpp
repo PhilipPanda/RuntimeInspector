@@ -19,6 +19,11 @@
 #include <functional>
 #include <unordered_set>
 #include <psapi.h>
+#include <wintrust.h>
+#include <softpub.h>
+
+#pragma comment(lib, "wintrust.lib")
+#pragma comment(lib, "version.lib")
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "comctl32.lib")
@@ -74,6 +79,8 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	, m_hProcessIconList(nullptr)
 	, m_DefaultIconIndex(-1)
 	, m_ColumnVisible(COL_COUNT, true)
+	, m_TotalSystemMemory(0)
+	, m_CurrentProcessId(GetCurrentProcessId())
 {
 	m_ColumnVisible[COL_PPID] = false;
 	m_ColumnVisible[COL_SESSION] = false;
@@ -81,6 +88,12 @@ MainWindow::MainWindow(HINSTANCE hInstance)
 	m_ColumnVisible[COL_IMAGEPATH] = false;
 	m_ColumnVisible[COL_COMMANDLINE] = false;
 	m_ColumnVisible[COL_COMPANY] = false;
+	
+	MEMORYSTATUSEX memStatus = {};
+	memStatus.dwLength = sizeof(memStatus);
+	if (GlobalMemoryStatusEx(&memStatus)) {
+		m_TotalSystemMemory = memStatus.ullTotalPhys;
+	}
 }
 
 MainWindow::~MainWindow() {
@@ -88,7 +101,6 @@ MainWindow::~MainWindow() {
 }
 
 bool MainWindow::Initialize() {
-	// Step A: Initialize Common Controls
 	INITCOMMONCONTROLSEX icc = {};
 	icc.dwSize = sizeof(INITCOMMONCONTROLSEX);
 	icc.dwICC = ICC_LISTVIEW_CLASSES | ICC_TAB_CLASSES | ICC_BAR_CLASSES;
@@ -101,35 +113,26 @@ bool MainWindow::Initialize() {
 		return false;
 	}
 
-	// Step B-D: Create Main Window (includes window class registration and resource loading)
 	if (!CreateMainWindow()) {
-		// Error already reported in CreateMainWindow
 		return false;
 	}
 
-	// Step E: Create Menu Bar
 	if (!CreateMenuBar()) {
 		DWORD error = GetLastError();
 		std::wostringstream oss;
 		oss << L"Failed to create menu bar. Error: " << error;
 		MessageBoxW(m_hWnd, oss.str().c_str(), L"Initialization Warning", MB_OK | MB_ICONWARNING);
 		Logger::GetInstance().LogWarning("Failed to create menu bar. Error: " + std::to_string(error));
-		// Non-critical, continue
 	}
 
-	// Step E: Create Toolbar (optional, can be hidden)
 	if (!CreateToolbar()) {
 		Logger::GetInstance().LogWarning("Failed to create toolbar. Continuing without toolbar.");
-		// Non-critical, continue
 	}
 
-	// Step E: Create Search/Filter Bar
 	if (!CreateSearchFilter()) {
 		Logger::GetInstance().LogWarning("Failed to create search filter. Continuing without filter.");
-		// Non-critical, continue
 	}
 
-	// Step E: Create Process ListView
 	if (!CreateProcessListView()) {
 		DWORD error = GetLastError();
 		std::wostringstream oss;
@@ -139,17 +142,14 @@ bool MainWindow::Initialize() {
 		return false;
 	}
 
-	// Step E: Create Status Bar
 	if (!CreateStatusBar()) {
 		DWORD error = GetLastError();
 		std::wostringstream oss;
 		oss << L"Failed to create status bar. Error: " << error;
 		MessageBoxW(m_hWnd, oss.str().c_str(), L"Initialization Warning", MB_OK | MB_ICONWARNING);
 		Logger::GetInstance().LogWarning("Failed to create status bar. Error: " + std::to_string(error));
-		// Non-critical, continue
 	}
 
-	// Step F: Create keyboard accelerators
 	ACCEL accels[3] = {};
 	accels[0].fVirt = FVIRTKEY | FNOINVERT;
 	accels[0].key = VK_F5;
@@ -168,13 +168,10 @@ bool MainWindow::Initialize() {
 		Logger::GetInstance().LogWarning("Failed to create accelerator table");
 	}
 
-	// Step G: Trigger initial layout now that all controls are created
-	// This ensures ListView accounts for StatusBar height
 	RECT rc;
 	GetClientRect(m_hWnd, &rc);
 	SendMessage(m_hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
 
-	// Initialize filtered processes
 	m_FilteredProcesses = m_Processes;
 
 	RefreshProcessList();
@@ -185,7 +182,6 @@ bool MainWindow::Initialize() {
 int MainWindow::Run() {
 	MSG msg = {};
 	while (GetMessage(&msg, nullptr, 0, 0) > 0) {
-		// Handle keyboard accelerators
 		if (m_hAccel && TranslateAccelerator(m_hWnd, m_hAccel, &msg)) {
 			continue;
 		}
@@ -196,7 +192,6 @@ int MainWindow::Run() {
 }
 
 bool MainWindow::CreateMainWindow() {
-	// Validate hInstance
 	if (!m_hInstance) {
 		MessageBoxW(nullptr, L"Invalid hInstance (NULL)", L"Initialization Error", MB_OK | MB_ICONERROR);
 		Logger::GetInstance().LogError("Invalid hInstance (NULL)");
@@ -211,15 +206,13 @@ bool MainWindow::CreateMainWindow() {
 	wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
 	wc.lpszClassName = L"WinProcessInspectorMainWindow";
 	
-	// Load cursor (non-critical, use default if fails)
 	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	if (!wc.hCursor) {
 		DWORD error = GetLastError();
 		Logger::GetInstance().LogWarning("Failed to load cursor. Error: " + std::to_string(error) + ". Using default.");
-		wc.hCursor = LoadCursor(nullptr, IDC_ARROW); // Try again or use system default
+		wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
 	}
 	
-	// Load icons (non-critical, use defaults if fails)
 	HICON hIcon = static_cast<HICON>(LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_APP_ICON), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE));
 	if (!hIcon) {
 		DWORD error = GetLastError();
@@ -236,11 +229,9 @@ bool MainWindow::CreateMainWindow() {
 	wc.hIcon = hIcon;
 	wc.hIconSm = hIconSm;
 
-	// Unregister class if it exists (from previous run)
 	UnregisterClassW(L"WinProcessInspectorMainWindow", m_hInstance);
-	SetLastError(0); // Clear error from UnregisterClass (it's OK if class didn't exist)
+	SetLastError(0);
 
-	// Register window class
 	ATOM classAtom = RegisterClassExW(&wc);
 	if (classAtom == 0) {
 		DWORD error = GetLastError();
@@ -253,7 +244,6 @@ bool MainWindow::CreateMainWindow() {
 		return false;
 	}
 
-	// Verify class exists before creating window
 	WNDCLASSEXW verifyClass = {};
 	verifyClass.cbSize = sizeof(WNDCLASSEXW);
 	if (!GetClassInfoExW(m_hInstance, L"WinProcessInspectorMainWindow", &verifyClass)) {
@@ -267,8 +257,7 @@ bool MainWindow::CreateMainWindow() {
 		return false;
 	}
 
-	// Create main window
-	SetLastError(0); // Clear any previous errors
+	SetLastError(0);
 	m_hWnd = CreateWindowExW(
 		0,
 		L"WinProcessInspectorMainWindow",
@@ -282,7 +271,6 @@ bool MainWindow::CreateMainWindow() {
 		this
 	);
 	
-	// Ensure title is set (in case CreateWindowExW didn't set it properly)
 	if (m_hWnd) {
 		SetWindowTextW(m_hWnd, L"WinProcessInspector");
 	}
@@ -300,7 +288,6 @@ bool MainWindow::CreateMainWindow() {
 		return false;
 	}
 
-	// Verify window was created successfully
 	if (!IsWindow(m_hWnd)) {
 		std::wostringstream oss;
 		oss << L"Created window handle is invalid. Handle: 0x" << std::hex << reinterpret_cast<ULONG_PTR>(m_hWnd);
@@ -313,14 +300,12 @@ bool MainWindow::CreateMainWindow() {
 	ShowWindow(m_hWnd, SW_SHOWNORMAL);
 	UpdateWindow(m_hWnd);
 	
-	// Trigger initial layout
 	SendMessage(m_hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(1200, 800));
 	
 	return true;
 }
 
 bool MainWindow::CreateMenuBar() {
-	// Verify window is valid before using it
 	if (!m_hWnd || !IsWindow(m_hWnd)) {
 		MessageBoxW(nullptr, L"Invalid window handle when creating menu bar", L"Initialization Error", MB_OK | MB_ICONERROR);
 		Logger::GetInstance().LogError("Invalid window handle when creating menu bar");
@@ -406,7 +391,6 @@ bool MainWindow::CreateMenuBar() {
 	AppendMenuW(m_hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hViewMenu), L"&View");
 	AppendMenuW(m_hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hHelpMenu), L"&Help");
 
-	// Set menu on window - verify window is valid first
 	if (m_hWnd && IsWindow(m_hWnd)) {
 		if (!SetMenu(m_hWnd, m_hMenu)) {
 			DWORD error = GetLastError();
@@ -414,7 +398,6 @@ bool MainWindow::CreateMenuBar() {
 			oss << L"Failed to set menu on window. Error: " << error << L" (0x" << std::hex << error << L")";
 			MessageBoxW(m_hWnd, oss.str().c_str(), L"Initialization Warning", MB_OK | MB_ICONWARNING);
 			Logger::GetInstance().LogWarning("Failed to set menu on window. Error: " + std::to_string(error));
-			// Non-critical, continue
 		}
 	} else {
 		MessageBoxW(nullptr, L"Window handle is invalid when setting menu", L"Initialization Error", MB_OK | MB_ICONERROR);
@@ -422,7 +405,6 @@ bool MainWindow::CreateMenuBar() {
 		return false;
 	}
 
-	// Create context menu
 	m_hContextMenu = CreatePopupMenu();
 	if (!m_hContextMenu) {
 		DWORD error = GetLastError();
@@ -430,7 +412,6 @@ bool MainWindow::CreateMenuBar() {
 		oss << L"Failed to create context menu. Error: " << error;
 		MessageBoxW(m_hWnd, oss.str().c_str(), L"Initialization Warning", MB_OK | MB_ICONWARNING);
 		Logger::GetInstance().LogWarning("Failed to create context menu. Error: " + std::to_string(error));
-		// Non-critical, continue
 	} else {
 		AppendMenuW(m_hContextMenu, MF_STRING, IDM_CONTEXT_PROPERTIES, L"&Properties");
 		AppendMenuW(m_hContextMenu, MF_SEPARATOR, 0, nullptr);
@@ -452,13 +433,9 @@ bool MainWindow::CreateMenuBar() {
 }
 
 bool MainWindow::CreateProcessListView() {
-	// Common controls are already initialized in Initialize()
-	// Get client area for initial sizing
 	RECT rc;
 	GetClientRect(m_hWnd, &rc);
 	
-	// Create ListView control with proper initial size
-	// Note: StatusBar will be created after this, so OnSize will handle final layout
 	m_hProcessListView = CreateWindowExW(
 		WS_EX_CLIENTEDGE,
 		WC_LISTVIEWW,
@@ -482,47 +459,39 @@ bool MainWindow::CreateProcessListView() {
 		return false;
 	}
 
-	ListView_SetExtendedListViewStyle(m_hProcessListView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+	ListView_SetExtendedListViewStyle(m_hProcessListView, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
 
-	// Create icon image list for process icons (DPI-aware)
 	int iconSize = GetSystemMetrics(SM_CXSMICON);
 	m_hProcessIconList = ImageList_Create(iconSize, iconSize, ILC_COLOR32 | ILC_MASK, 1, 100);
 	if (m_hProcessIconList) {
-		// Load default executable icon
 		SHFILEINFOW sfi = {};
 		SHGetFileInfoW(L".exe", FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi), SHGFI_ICON | SHGFI_SMALLICON | SHGFI_USEFILEATTRIBUTES);
 		if (sfi.hIcon) {
 			m_DefaultIconIndex = ImageList_AddIcon(m_hProcessIconList, sfi.hIcon);
 			DestroyIcon(sfi.hIcon);
 		}
-		// Attach image list to ListView
 		ListView_SetImageList(m_hProcessListView, m_hProcessIconList, LVSIL_SMALL);
 	}
 
-	// Add columns
 	LVCOLUMNW lvc = {};
 	lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
 	lvc.fmt = LVCFMT_LEFT;
 
-	// Name (with icon) - first column
 	lvc.iSubItem = COL_NAME;
 	lvc.pszText = const_cast<LPWSTR>(L"Name");
 	lvc.cx = 280;
 	ListView_InsertColumn(m_hProcessListView, COL_NAME, &lvc);
 
-	// PID
 	lvc.iSubItem = COL_PID;
 	lvc.pszText = const_cast<LPWSTR>(L"PID");
 	lvc.cx = 90;
 	ListView_InsertColumn(m_hProcessListView, COL_PID, &lvc);
 
-	// Parent PID (hidden by default)
 	lvc.iSubItem = COL_PPID;
 	lvc.pszText = const_cast<LPWSTR>(L"PPID");
 	lvc.cx = 90;
 	ListView_InsertColumn(m_hProcessListView, COL_PPID, &lvc);
 
-	// CPU Usage
 	lvc.iSubItem = COL_CPU;
 	lvc.pszText = const_cast<LPWSTR>(L"CPU");
 	lvc.cx = 90;
@@ -530,7 +499,6 @@ bool MainWindow::CreateProcessListView() {
 	ListView_InsertColumn(m_hProcessListView, COL_CPU, &lvc);
 	lvc.fmt = LVCFMT_LEFT;
 
-	// Private Memory
 	lvc.iSubItem = COL_MEMORY;
 	lvc.pszText = const_cast<LPWSTR>(L"Memory");
 	lvc.cx = 120;
@@ -538,55 +506,46 @@ bool MainWindow::CreateProcessListView() {
 	ListView_InsertColumn(m_hProcessListView, COL_MEMORY, &lvc);
 	lvc.fmt = LVCFMT_LEFT;
 
-	// User
 	lvc.iSubItem = COL_USER;
 	lvc.pszText = const_cast<LPWSTR>(L"User");
 	lvc.cx = 180;
 	ListView_InsertColumn(m_hProcessListView, COL_USER, &lvc);
 
-	// Integrity
 	lvc.iSubItem = COL_INTEGRITY;
 	lvc.pszText = const_cast<LPWSTR>(L"Integrity");
 	lvc.cx = 120;
 	ListView_InsertColumn(m_hProcessListView, COL_INTEGRITY, &lvc);
 
-	// Architecture
 	lvc.iSubItem = COL_ARCHITECTURE;
 	lvc.pszText = const_cast<LPWSTR>(L"Architecture");
 	lvc.cx = 120;
 	ListView_InsertColumn(m_hProcessListView, COL_ARCHITECTURE, &lvc);
 
-	// Session (hidden by default)
 	lvc.iSubItem = COL_SESSION;
 	lvc.pszText = const_cast<LPWSTR>(L"Session");
 	lvc.cx = 70;
 	ListView_InsertColumn(m_hProcessListView, COL_SESSION, &lvc);
 
-	// Description (hidden by default)
 	lvc.iSubItem = COL_DESCRIPTION;
 	lvc.pszText = const_cast<LPWSTR>(L"Description");
 	lvc.cx = 180;
 	ListView_InsertColumn(m_hProcessListView, COL_DESCRIPTION, &lvc);
 
-	// Image Path (hidden by default)
 	lvc.iSubItem = COL_IMAGEPATH;
 	lvc.pszText = const_cast<LPWSTR>(L"Image Path");
 	lvc.cx = 250;
 	ListView_InsertColumn(m_hProcessListView, COL_IMAGEPATH, &lvc);
 
-	// Command Line (hidden by default)
 	lvc.iSubItem = COL_COMMANDLINE;
 	lvc.pszText = const_cast<LPWSTR>(L"Command Line");
 	lvc.cx = 300;
 	ListView_InsertColumn(m_hProcessListView, COL_COMMANDLINE, &lvc);
 
-	// Company Name (hidden by default)
 	lvc.iSubItem = COL_COMPANY;
 	lvc.pszText = const_cast<LPWSTR>(L"Company");
 	lvc.cx = 150;
 	ListView_InsertColumn(m_hProcessListView, COL_COMPANY, &lvc);
 
-	// Hide columns that should be hidden by default
 	for (int i = 0; i < COL_COUNT; ++i) {
 		if (!m_ColumnVisible[i]) {
 			ListView_SetColumnWidth(m_hProcessListView, i, 0);
@@ -622,7 +581,6 @@ bool MainWindow::CreateStatusBar() {
 }
 
 bool MainWindow::CreateToolbar() {
-	// Create toolbar control
 	m_hToolbar = CreateWindowExW(
 		0,
 		TOOLBARCLASSNAMEW,
@@ -639,18 +597,14 @@ bool MainWindow::CreateToolbar() {
 		return false;
 	}
 
-	// Send TB_BUTTONSTRUCTSIZE message
 	SendMessage(m_hToolbar, TB_BUTTONSTRUCTSIZE, sizeof(TBBUTTON), 0);
 
-	// Set toolbar image list (using icon resources per directive)
 	HIMAGELIST hImageList = ImageList_Create(16, 16, ILC_COLOR32 | ILC_MASK, 3, 0);
 	if (hImageList) {
-		// Load icon resources (Windows selects appropriate size automatically)
 		HICON hIconRefresh = static_cast<HICON>(LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_REFRESH), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
 		HICON hIconProperties = static_cast<HICON>(LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_PROPERTIES), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
 		HICON hIconSearch = static_cast<HICON>(LoadImage(m_hInstance, MAKEINTRESOURCE(IDI_SEARCH), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR));
 		
-		// Use actual icons if loaded, otherwise fallback to system icons
 		if (!hIconRefresh) hIconRefresh = LoadIcon(nullptr, IDI_APPLICATION);
 		if (!hIconProperties) hIconProperties = LoadIcon(nullptr, IDI_APPLICATION);
 		if (!hIconSearch) hIconSearch = LoadIcon(nullptr, IDI_APPLICATION);
@@ -662,10 +616,8 @@ bool MainWindow::CreateToolbar() {
 		SendMessage(m_hToolbar, TB_SETIMAGELIST, 0, reinterpret_cast<LPARAM>(hImageList));
 	}
 
-	// Add buttons
 	TBBUTTON buttons[3] = {};
 	
-	// Refresh button (IDI_REFRESH)
 	buttons[0].iBitmap = 0;
 	buttons[0].idCommand = IDM_FILE_REFRESH;
 	buttons[0].fsState = TBSTATE_ENABLED;
@@ -673,7 +625,6 @@ bool MainWindow::CreateToolbar() {
 	buttons[0].dwData = 0;
 	buttons[0].iString = 0;
 
-	// Properties button (IDI_PROPERTIES) - opens properties for selected process
 	buttons[1].iBitmap = 1;
 	buttons[1].idCommand = IDM_CONTEXT_PROPERTIES;
 	buttons[1].fsState = TBSTATE_ENABLED;
@@ -681,7 +632,6 @@ bool MainWindow::CreateToolbar() {
 	buttons[1].dwData = 0;
 	buttons[1].iString = 0;
 
-	// Search/Filter button (IDI_SEARCH) - focuses search field
 	buttons[2].iBitmap = 2;
 	buttons[2].idCommand = IDC_SEARCH_FILTER;
 	buttons[2].fsState = TBSTATE_ENABLED;
@@ -727,7 +677,6 @@ bool MainWindow::CreateSearchFilter() {
 		nullptr
 	);
 
-	// Create edit control for search/filter
 	m_hSearchFilter = CreateWindowExW(
 		WS_EX_CLIENTEDGE,
 		L"EDIT",
@@ -787,10 +736,8 @@ LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 		if (pCreate && pCreate->lpCreateParams) {
 			pThis = reinterpret_cast<MainWindow*>(pCreate->lpCreateParams);
 			SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(pThis));
-			// Return TRUE to allow window creation to continue
 			return TRUE;
 		}
-		// If lpCreateParams is NULL or invalid, window creation should fail
 		return FALSE;
 	} else {
 		pThis = reinterpret_cast<MainWindow*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
@@ -804,8 +751,6 @@ LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 }
 
 LRESULT MainWindow::OnCreate() {
-	// Trigger initial layout after all controls are created
-	// This ensures ListView and StatusBar are properly sized
 	PostMessage(m_hWnd, WM_SIZE, SIZE_RESTORED, 0);
 	return 0;
 }
@@ -824,7 +769,6 @@ LRESULT MainWindow::OnSize() {
 	GetClientRect(m_hWnd, &rc);
 	int yPos = 0;
 
-	// Resize toolbar if visible
 	int toolbarHeight = 0;
 	if (m_hToolbar && IsWindow(m_hToolbar) && m_ToolbarVisible) {
 		SendMessage(m_hToolbar, WM_SIZE, 0, 0);
@@ -860,18 +804,14 @@ LRESULT MainWindow::OnSize() {
 		}
 	}
 
-	// Resize status bar first (it needs to know its size)
 	int statusBarHeight = 0;
 	if (m_hStatusBar && IsWindow(m_hStatusBar)) {
-		// Status bar handles its own sizing via WM_SIZE
 		SendMessage(m_hStatusBar, WM_SIZE, 0, 0);
 		
-		// Get status bar height using client rect (more reliable)
 		RECT rcStatus;
 		if (GetClientRect(m_hStatusBar, &rcStatus)) {
 			statusBarHeight = rcStatus.bottom - rcStatus.top;
 		} else {
-			// Fallback: use GetWindowRect and convert
 			RECT rcStatusWindow;
 			if (GetWindowRect(m_hStatusBar, &rcStatusWindow)) {
 				statusBarHeight = rcStatusWindow.bottom - rcStatusWindow.top;
@@ -880,7 +820,6 @@ LRESULT MainWindow::OnSize() {
 		rc.bottom -= statusBarHeight;
 	}
 
-	// Resize process list to fill remaining client area
 	if (m_hProcessListView && IsWindow(m_hProcessListView)) {
 		int width = rc.right - rc.left;
 		int height = rc.bottom - rc.top - yPos;
@@ -893,7 +832,6 @@ LRESULT MainWindow::OnSize() {
 				height,
 				SWP_NOZORDER | SWP_NOACTIVATE
 			);
-			// Ensure ListView is visible and redrawn
 			ShowWindow(m_hProcessListView, SW_SHOW);
 			UpdateWindow(m_hProcessListView);
 		}
@@ -1048,37 +986,7 @@ LRESULT MainWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
 	
 	if (pnmh->idFrom == IDC_PROCESS_LIST) {
 		if (pnmh->code == NM_CUSTOMDRAW) {
-			NMLVCUSTOMDRAW* pcd = reinterpret_cast<NMLVCUSTOMDRAW*>(lParam);
-			
-			switch (pcd->nmcd.dwDrawStage) {
-				case CDDS_PREPAINT:
-					return CDRF_NOTIFYITEMDRAW;
-					
-				case CDDS_ITEMPREPAINT:
-				{
-					LVITEMW lvi = {};
-					lvi.iItem = static_cast<int>(pcd->nmcd.dwItemSpec);
-					lvi.mask = LVIF_PARAM;
-					ListView_GetItem(m_hProcessListView, &lvi);
-					DWORD processId = static_cast<DWORD>(lvi.lParam);
-					
-					double cpuUsage = GetCpuUsage(processId);
-					
-					if (cpuUsage >= 50.0) {
-						pcd->clrText = RGB(255, 255, 255);
-						pcd->clrTextBk = RGB(200, 0, 0);
-					} else if (cpuUsage >= 25.0) {
-						pcd->clrText = RGB(0, 0, 0);
-						pcd->clrTextBk = RGB(255, 255, 0);
-					} else if (cpuUsage >= 5.0) {
-						pcd->clrText = RGB(0, 0, 0);
-						pcd->clrTextBk = RGB(144, 238, 144);
-					}
-					
-					return CDRF_DODEFAULT;
-				}
-			}
-			return CDRF_DODEFAULT;
+			return OnCustomDraw(reinterpret_cast<LPNMLVCUSTOMDRAW>(lParam));
 		} else if (pnmh->code == NM_DBLCLK) {
 			OnProcessListDoubleClick();
 		} else if (pnmh->code == LVN_ITEMCHANGED) {
@@ -1100,7 +1008,6 @@ LRESULT MainWindow::OnNotify(WPARAM wParam, LPARAM lParam) {
 			}
 		}
 	} else if (pnmh->idFrom == IDC_TOOLBAR && pnmh->code == TTN_GETDISPINFO) {
-		// Toolbar tooltip notification
 		NMTTDISPINFOW* pttdi = reinterpret_cast<NMTTDISPINFOW*>(lParam);
 		switch (pttdi->hdr.idFrom) {
 			case IDM_FILE_REFRESH:
@@ -1136,24 +1043,21 @@ LRESULT MainWindow::OnTimer(WPARAM wParam) {
 }
 
 void MainWindow::RefreshProcessList() {
-	// Prevent concurrent refreshes
 	if (m_IsRefreshing) {
 		return;
 	}
 
 	ULONGLONG currentTime = GetTickCount64();
-	if (m_LastRefreshTime > 0 && (currentTime - m_LastRefreshTime) < 1000) {
+	if (m_LastRefreshTime > 0 && (currentTime - m_LastRefreshTime) < 500) {
 		return;
 	}
 
 	m_IsRefreshing = true;
 	m_LastRefreshTime = currentTime;
 
-	// Run refresh in background thread to keep UI responsive
 	std::thread refreshThread([this]() {
 		std::vector<ProcessInfo> processes = m_ProcessManager.EnumerateAllProcesses();
 		
-		// Post result back to UI thread
 		PostMessage(m_hWnd, WM_USER + 1, 0, reinterpret_cast<LPARAM>(new std::vector<ProcessInfo>(std::move(processes))));
 	});
 	refreshThread.detach();
@@ -1176,7 +1080,6 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 		case WM_TIMER:
 			return OnTimer(wParam);
 		case WM_KEYDOWN:
-			// Handle keyboard shortcuts
 			if (wParam == VK_F5) {
 				RefreshProcessList();
 				return 0;
@@ -1193,10 +1096,28 @@ LRESULT MainWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) {
 			}
 			break;
 		case WM_USER + 1:
-			// Refresh completed
 			{
 				std::vector<ProcessInfo>* processes = reinterpret_cast<std::vector<ProcessInfo>*>(lParam);
 				if (processes) {
+					std::unordered_set<DWORD> oldPids;
+					for (const auto& p : m_Processes) {
+						oldPids.insert(p.ProcessId);
+					}
+					
+					std::unordered_set<DWORD> newPids;
+					for (const auto& p : *processes) {
+						newPids.insert(p.ProcessId);
+					}
+					
+					for (DWORD pid : oldPids) {
+						if (newPids.find(pid) == newPids.end()) {
+							m_SystemProcessCache.erase(pid);
+							m_ProcessCpuTime.erase(pid);
+							m_ProcessCpuPercent.erase(pid);
+							m_ProcessMemory.erase(pid);
+						}
+					}
+					
 					m_Processes = std::move(*processes);
 					delete processes;
 					
@@ -1242,7 +1163,6 @@ int MainWindow::GetProcessIconIndex(const std::wstring& imagePath) {
 		return m_DefaultIconIndex;
 	}
 
-	// Check cache first
 	auto it = m_IconCache.find(imagePath);
 	if (it != m_IconCache.end()) {
 		return it->second;
@@ -1430,10 +1350,29 @@ void MainWindow::UpdateProcessList() {
 		} else {
 			std::wstring filterLower = m_FilterText;
 			std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::towlower);
+			
 			for (const auto& proc : m_Processes) {
 				std::wstring nameW(proc.ProcessName.begin(), proc.ProcessName.end());
 				std::transform(nameW.begin(), nameW.end(), nameW.begin(), ::towlower);
-				if (nameW.find(filterLower) != std::wstring::npos) {
+				
+				std::wstring pidStr = std::to_wstring(proc.ProcessId);
+				std::transform(pidStr.begin(), pidStr.end(), pidStr.begin(), ::towlower);
+				
+				std::wstring imagePath = GetProcessImagePath(proc.ProcessId);
+				std::wstring desc = imagePath.empty() ? L"" : GetFileDescription(imagePath);
+				std::transform(desc.begin(), desc.end(), desc.begin(), ::towlower);
+				
+				std::wstring company = imagePath.empty() ? L"" : GetFileCompany(imagePath);
+				std::transform(company.begin(), company.end(), company.begin(), ::towlower);
+				
+				std::wstring user = proc.UserName;
+				std::transform(user.begin(), user.end(), user.begin(), ::towlower);
+				
+				if (nameW.find(filterLower) != std::wstring::npos ||
+					pidStr.find(filterLower) != std::wstring::npos ||
+					desc.find(filterLower) != std::wstring::npos ||
+					company.find(filterLower) != std::wstring::npos ||
+					user.find(filterLower) != std::wstring::npos) {
 					m_FilteredProcesses.push_back(proc);
 				}
 			}
@@ -1471,7 +1410,6 @@ void MainWindow::UpdateProcessList() {
 		}
 		displayName += nameWStr;
 
-		// Name (with icon) - first column
 		LVITEMW lvi = {};
 		lvi.mask = LVIF_TEXT | LVIF_PARAM | LVIF_IMAGE;
 		lvi.iItem = static_cast<int>(i);
@@ -1481,44 +1419,36 @@ void MainWindow::UpdateProcessList() {
 		lvi.iSubItem = COL_NAME;
 		ListView_InsertItem(m_hProcessListView, &lvi);
 
-		// PID
 		std::wostringstream pidStr;
 		pidStr << proc.ProcessId;
 		std::wstring pidWStr = pidStr.str();
 		ListView_SetItemText(m_hProcessListView, i, COL_PID, const_cast<LPWSTR>(pidWStr.c_str()));
 
-		// Parent PID
 		std::wostringstream ppidStr;
 		ppidStr << proc.ParentProcessId;
 		std::wstring ppidWStr = ppidStr.str();
 		ListView_SetItemText(m_hProcessListView, i, COL_PPID, const_cast<LPWSTR>(ppidWStr.c_str()));
 
-		// Session
 		std::wostringstream sessionStr;
 		sessionStr << proc.SessionId;
 		std::wstring sessionWStr = sessionStr.str();
 		ListView_SetItemText(m_hProcessListView, i, COL_SESSION, const_cast<LPWSTR>(sessionWStr.c_str()));
 
-		// Integrity
 		std::wstring integrityStr = FormatIntegrityLevel(proc.IntegrityLevel);
 		ListView_SetItemText(m_hProcessListView, i, COL_INTEGRITY, const_cast<LPWSTR>(integrityStr.c_str()));
 
-		// User
 		std::wstring userStr = proc.UserName.empty() ? L"N/A" : proc.UserName;
 		ListView_SetItemText(m_hProcessListView, i, COL_USER, const_cast<LPWSTR>(userStr.c_str()));
 
-		// Architecture
 		std::wstring archWStr(proc.Architecture.begin(), proc.Architecture.end());
 		ListView_SetItemText(m_hProcessListView, i, COL_ARCHITECTURE, const_cast<LPWSTR>(archWStr.c_str()));
 
-		// CPU Usage
 		double cpuPercent = GetCpuUsage(proc.ProcessId);
 		std::wostringstream cpuStream;
 		cpuStream << std::fixed << std::setprecision(1) << cpuPercent << L"%";
 		std::wstring cpuStr = cpuStream.str();
 		ListView_SetItemText(m_hProcessListView, i, COL_CPU, const_cast<LPWSTR>(cpuStr.c_str()));
 
-		// Private Memory
 		std::wstring memoryStr = L"N/A";
 		auto memIt = m_ProcessMemory.find(proc.ProcessId);
 		if (memIt != m_ProcessMemory.end() && memIt->second > 0) {
@@ -1526,17 +1456,23 @@ void MainWindow::UpdateProcessList() {
 		}
 		ListView_SetItemText(m_hProcessListView, i, COL_MEMORY, const_cast<LPWSTR>(memoryStr.c_str()));
 
-		ListView_SetItemText(m_hProcessListView, i, COL_DESCRIPTION, const_cast<LPWSTR>(L"N/A"));
+		std::wstring descriptionStr = L"";
+		std::wstring companyStr = L"";
+		if (!imagePath.empty()) {
+			descriptionStr = GetFileDescription(imagePath);
+			companyStr = GetFileCompany(imagePath);
+		}
+		if (descriptionStr.empty()) descriptionStr = L"N/A";
+		if (companyStr.empty()) companyStr = L"N/A";
+		
+		ListView_SetItemText(m_hProcessListView, i, COL_DESCRIPTION, const_cast<LPWSTR>(descriptionStr.c_str()));
 
-		// Image Path
 		std::wstring imagePathStr = imagePath.empty() ? L"N/A" : imagePath;
 		ListView_SetItemText(m_hProcessListView, i, COL_IMAGEPATH, const_cast<LPWSTR>(imagePathStr.c_str()));
 
-		// Command Line (placeholder - would need NtQueryInformationProcess)
 		ListView_SetItemText(m_hProcessListView, i, COL_COMMANDLINE, const_cast<LPWSTR>(L"N/A"));
 
-		// Company Name (placeholder - would need version info)
-		ListView_SetItemText(m_hProcessListView, i, COL_COMPANY, const_cast<LPWSTR>(L"N/A"));
+		ListView_SetItemText(m_hProcessListView, i, COL_COMPANY, const_cast<LPWSTR>(companyStr.c_str()));
 	}
 }
 
@@ -1942,7 +1878,7 @@ void MainWindow::OnViewAutoRefresh() {
 	}
 
 	if (m_AutoRefresh) {
-		m_RefreshTimerId = SetTimer(m_hWnd, IDT_REFRESH_TIMER, 2000, nullptr); // Refresh every 2 seconds
+		m_RefreshTimerId = SetTimer(m_hWnd, IDT_REFRESH_TIMER, 2000, nullptr);
 	} else {
 		if (m_RefreshTimerId) {
 			KillTimer(m_hWnd, m_RefreshTimerId);
@@ -2142,7 +2078,6 @@ void MainWindow::ShowProcessProperties(DWORD processId) {
 }
 
 bool MainWindow::ValidateProcess(DWORD processId, std::wstring& errorMsg) {
-	// Check if process still exists
 	ProcessInfo info = m_ProcessManager.GetProcessDetails(processId);
 	if (info.ProcessId == 0) {
 		errorMsg = L"The process no longer exists.";
@@ -2174,7 +2109,6 @@ bool MainWindow::ValidateArchitectureCompatibility(DWORD processId, std::wstring
 	SystemInfo sysInfo;
 	std::string systemArch = sysInfo.GetSystemArchitecture();
 	
-	// Check if architectures match
 	if (targetArch != systemArch && targetArch != "?" && systemArch != "?") {
 		std::wostringstream oss;
 		oss << L"Architecture mismatch. Target process is " << std::wstring(targetArch.begin(), targetArch.end())
@@ -2189,9 +2123,8 @@ bool MainWindow::ValidateArchitectureCompatibility(DWORD processId, std::wstring
 bool MainWindow::ValidateIntegrityLevel(DWORD processId, std::wstring& errorMsg) {
 	SecurityManager secMgr;
 	IntegrityLevel targetLevel = secMgr.GetProcessIntegrityLevel(processId);
-	IntegrityLevel currentLevel = secMgr.GetProcessIntegrityLevel(0); // 0 = current process
+	IntegrityLevel currentLevel = secMgr.GetProcessIntegrityLevel(0);
 	
-	// Check if target process has higher integrity
 	if (static_cast<DWORD>(targetLevel) > static_cast<DWORD>(currentLevel)) {
 		errorMsg = L"The target process has higher integrity level. This operation may fail.";
 		return false;
@@ -2242,7 +2175,6 @@ void MainWindow::SuspendProcess(DWORD processId) {
 		return;
 	}
 
-	// Suspend all threads in the process
 	std::vector<ThreadInfo> threads = m_ProcessManager.EnumerateThreads(processId);
 	int suspendedCount = 0;
 	int failedCount = 0;
@@ -2287,7 +2219,6 @@ void MainWindow::ResumeProcess(DWORD processId) {
 		return;
 	}
 
-	// Resume all threads in the process
 	std::vector<ThreadInfo> threads = m_ProcessManager.EnumerateThreads(processId);
 	int resumedCount = 0;
 	int failedCount = 0;
@@ -2333,9 +2264,8 @@ void MainWindow::InjectDll(DWORD processId) {
 		return;
 	}
 
-	ValidateArchitectureCompatibility(processId, errorMsg); // Warning only
+	ValidateArchitectureCompatibility(processId, errorMsg);
 
-	// Open file dialog to select DLL
 	OPENFILENAMEW ofn = {};
 	wchar_t szFile[260] = {};
 	ofn.lStructSize = sizeof(ofn);
@@ -2350,10 +2280,9 @@ void MainWindow::InjectDll(DWORD processId) {
 	ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
 
 	if (!GetOpenFileNameW(&ofn)) {
-		return; // User cancelled
+		return;
 	}
 
-	// Convert DLL path to ANSI (injection layer uses ANSI)
 	int ansiLen = WideCharToMultiByte(CP_ACP, 0, szFile, -1, nullptr, 0, nullptr, nullptr);
 	if (ansiLen <= 0) {
 		MessageBoxW(m_hWnd, L"Failed to convert DLL path.", L"Inject DLL", MB_OK | MB_ICONERROR);
@@ -2363,17 +2292,15 @@ void MainWindow::InjectDll(DWORD processId) {
 	std::vector<char> ansiPath(ansiLen);
 	WideCharToMultiByte(CP_ACP, 0, szFile, -1, &ansiPath[0], ansiLen, nullptr, nullptr);
 
-	// Open process handle for injection
 	HandleWrapper hProcess = m_ProcessManager.OpenProcess(processId, PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ);
 	if (!hProcess.IsValid()) {
 		MessageBoxW(m_hWnd, L"Failed to open process for injection.", L"Inject DLL", MB_OK | MB_ICONERROR);
 		return;
 	}
 
-	// Let user select injection method
 	int selectedMethod = SelectInjectionMethod(processId);
 	if (selectedMethod == -1) {
-		return; // User cancelled
+		return;
 	}
 
 	using namespace WinProcessInspector::Injection;
@@ -2381,31 +2308,19 @@ void MainWindow::InjectDll(DWORD processId) {
 	std::wstring methodUsed;
 
 	switch (selectedMethod) {
-		case 0: // CreateRemoteThread
-			if (InjectViaCreateRemoteThread(&ansiPath[0], hProcess.Get())) {
-				success = true;
-				methodUsed = L"CreateRemoteThread";
-			}
-			break;
-		case 1: // NtCreateThreadEx
+		case 0:
 			if (InjectViaNtCreateThreadEx(&ansiPath[0], hProcess.Get())) {
 				success = true;
 				methodUsed = L"NtCreateThreadEx";
 			}
 			break;
-		case 2: // RtlCreateUserThread
-			if (InjectViaRtlCreateUserThread(hProcess.Get(), &ansiPath[0])) {
-				success = true;
-				methodUsed = L"RtlCreateUserThread";
-			}
-			break;
-		case 3: // QueueUserAPC
+		case 1:
 			if (InjectViaQueueUserAPC(&ansiPath[0], hProcess.Get(), processId)) {
 				success = true;
 				methodUsed = L"QueueUserAPC";
 			}
 			break;
-		case 4: // SetWindowsHookEx
+		case 2:
 			if (InjectViaSetWindowsHookEx(processId, &ansiPath[0])) {
 				success = true;
 				methodUsed = L"SetWindowsHookEx";
@@ -2414,7 +2329,7 @@ void MainWindow::InjectDll(DWORD processId) {
 		default:
 			MessageBoxW(m_hWnd, L"Invalid injection method selected.", L"Inject DLL", MB_OK | MB_ICONERROR);
 			return;
-	}
+		}
 
 	if (success) {
 		std::wostringstream oss;
@@ -2450,14 +2365,12 @@ void MainWindow::OpenProcessFileLocation(DWORD processId) {
 	WCHAR processPath[MAX_PATH] = {};
 	DWORD pathLen = MAX_PATH;
 	if (QueryFullProcessImageNameW(hProcess.Get(), 0, processPath, &pathLen)) {
-		// Extract directory path
 		std::wstring dirPath(processPath);
 		size_t lastSlash = dirPath.find_last_of(L"\\/");
 		if (lastSlash != std::wstring::npos) {
 			dirPath = dirPath.substr(0, lastSlash + 1);
 		}
 
-		// Open folder in Explorer
 		ShellExecuteW(m_hWnd, L"open", L"explorer.exe", (L"/select,\"" + std::wstring(processPath) + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
 	} else {
 		MessageBoxW(m_hWnd, L"Failed to get process file path.", L"Open File Location", MB_OK | MB_ICONERROR);
@@ -2679,9 +2592,7 @@ static LRESULT CALLBACK InjectionMethodDialogProc(HWND hDlg, UINT uMsg, WPARAM w
 
 int MainWindow::SelectInjectionMethod(DWORD processId) {
 	const wchar_t* methods[] = {
-		L"CreateRemoteThread (Standard API)",
 		L"NtCreateThreadEx (Native API)",
-		L"RtlCreateUserThread (Low-level NT)",
 		L"QueueUserAPC (APC-based)",
 		L"SetWindowsHookEx (Hook-based)"
 	};
@@ -2895,4 +2806,300 @@ void MainWindow::GroupAppContainerProcesses(std::unordered_map<DWORD, std::vecto
 		
 		CloseHandle(hToken);
 	}
+}
+
+LRESULT MainWindow::OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd) {
+	switch (lplvcd->nmcd.dwDrawStage) {
+		case CDDS_PREPAINT:
+			return CDRF_NOTIFYITEMDRAW;
+		
+		case CDDS_ITEMPREPAINT:
+		{
+			LVITEMW lvi = {};
+			lvi.iItem = static_cast<int>(lplvcd->nmcd.dwItemSpec);
+			lvi.mask = LVIF_PARAM;
+			ListView_GetItem(m_hProcessListView, &lvi);
+			DWORD processId = static_cast<DWORD>(lvi.lParam);
+			
+			auto it = std::find_if(m_FilteredProcesses.begin(), m_FilteredProcesses.end(),
+				[processId](const ProcessInfo& p) { return p.ProcessId == processId; });
+			
+			if (it == m_FilteredProcesses.end()) {
+				return CDRF_DODEFAULT;
+			}
+			
+			lplvcd->clrText = RGB(0, 0, 0);
+			lplvcd->clrTextBk = (lplvcd->nmcd.dwItemSpec % 2) ? RGB(255, 255, 255) : RGB(248, 248, 248);
+			
+			COLORREF processColor = GetProcessColor(processId, *it);
+			if (processColor != RGB(0, 0, 0)) {
+				lplvcd->clrText = processColor;
+			}
+			
+			if (processId == m_CurrentProcessId) {
+				lplvcd->clrTextBk = RGB(220, 230, 255);
+			}
+			
+			return CDRF_NOTIFYSUBITEMDRAW | CDRF_NEWFONT;
+		}
+		
+		case CDDS_SUBITEM | CDDS_ITEMPREPAINT:
+		{
+			LVITEMW lvi = {};
+			lvi.iItem = static_cast<int>(lplvcd->nmcd.dwItemSpec);
+			lvi.mask = LVIF_PARAM;
+			ListView_GetItem(m_hProcessListView, &lvi);
+			DWORD processId = static_cast<DWORD>(lvi.lParam);
+			
+			if (lplvcd->iSubItem == COL_CPU) {
+				double cpuUsage = GetCpuUsage(processId);
+				if (cpuUsage > 0.1) {
+					RECT rect = lplvcd->nmcd.rc;
+					DrawCpuBar(lplvcd->nmcd.hdc, rect, cpuUsage);
+					return CDRF_SKIPDEFAULT;
+				}
+			} else if (lplvcd->iSubItem == COL_MEMORY) {
+				auto it = m_ProcessMemory.find(processId);
+				if (it != m_ProcessMemory.end() && it->second > 0) {
+					RECT rect = lplvcd->nmcd.rc;
+					DrawMemoryBar(lplvcd->nmcd.hdc, rect, it->second, m_TotalSystemMemory);
+					return CDRF_SKIPDEFAULT;
+				}
+			}
+			
+			return CDRF_DODEFAULT;
+		}
+	}
+	
+	return CDRF_DODEFAULT;
+}
+
+COLORREF MainWindow::GetProcessColor(DWORD processId, const ProcessInfo& info) {
+	if (IsSystemProcess(processId)) {
+		return RGB(0, 100, 200);
+	}
+	
+	switch (info.IntegrityLevel) {
+		case IntegrityLevel::System:
+		case IntegrityLevel::High:
+			return RGB(200, 0, 0);
+		case IntegrityLevel::Low:
+			return RGB(0, 128, 0);
+		case IntegrityLevel::Untrusted:
+			return RGB(160, 100, 0);
+		default:
+			return RGB(0, 0, 0);
+	}
+}
+
+void MainWindow::DrawCpuBar(HDC hdc, RECT rect, double cpuPercent) {
+	rect.left += 2;
+	rect.right -= 2;
+	rect.top += 2;
+	rect.bottom -= 2;
+	
+	HBRUSH bgBrush = CreateSolidBrush(RGB(240, 240, 240));
+	FillRect(hdc, &rect, bgBrush);
+	DeleteObject(bgBrush);
+	
+	int barWidth = static_cast<int>((rect.right - rect.left) * (cpuPercent / 100.0));
+	if (barWidth > 0) {
+		RECT barRect = rect;
+		barRect.right = barRect.left + barWidth;
+		
+		COLORREF barColor;
+		if (cpuPercent >= 75.0) {
+			barColor = RGB(255, 100, 100);
+		} else if (cpuPercent >= 50.0) {
+			barColor = RGB(255, 200, 80);
+		} else if (cpuPercent >= 25.0) {
+			barColor = RGB(255, 230, 100);
+		} else {
+			barColor = RGB(100, 200, 120);
+		}
+		
+		HBRUSH barBrush = CreateSolidBrush(barColor);
+		FillRect(hdc, &barRect, barBrush);
+		DeleteObject(barBrush);
+	}
+	
+	std::wostringstream oss;
+	oss << std::fixed << std::setprecision(1) << cpuPercent << L"%";
+	std::wstring text = oss.str();
+	
+	SetBkMode(hdc, TRANSPARENT);
+	SetTextColor(hdc, RGB(0, 0, 0));
+	DrawTextW(hdc, text.c_str(), -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+}
+
+void MainWindow::DrawMemoryBar(HDC hdc, RECT rect, SIZE_T memory, SIZE_T totalMemory) {
+	rect.left += 2;
+	rect.right -= 2;
+	rect.top += 2;
+	rect.bottom -= 2;
+	
+	HBRUSH bgBrush = CreateSolidBrush(RGB(240, 240, 240));
+	FillRect(hdc, &rect, bgBrush);
+	DeleteObject(bgBrush);
+	
+	double percent = (double)memory / (double)totalMemory * 100.0;
+	int barWidth = static_cast<int>((rect.right - rect.left) * (percent / 100.0));
+	
+	if (barWidth > 0 && barWidth < (rect.right - rect.left)) {
+		RECT barRect = rect;
+		barRect.right = barRect.left + barWidth;
+		
+		COLORREF barColor = RGB(80, 150, 255);
+		HBRUSH barBrush = CreateSolidBrush(barColor);
+		FillRect(hdc, &barRect, barBrush);
+		DeleteObject(barBrush);
+	}
+	
+	std::wstring text = FormatMemorySize(memory);
+	
+	SetBkMode(hdc, TRANSPARENT);
+	SetTextColor(hdc, RGB(0, 0, 0));
+	DrawTextW(hdc, text.c_str(), -1, &rect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+}
+
+bool MainWindow::IsSystemProcess(DWORD processId) {
+	auto it = m_SystemProcessCache.find(processId);
+	if (it != m_SystemProcessCache.end()) {
+		return it->second;
+	}
+	
+	bool isSystem = false;
+	if (processId == 0 || processId == 4) {
+		isSystem = true;
+	} else {
+		HandleWrapper hProcess = m_ProcessManager.OpenProcess(processId, PROCESS_QUERY_INFORMATION);
+		if (hProcess.IsValid()) {
+			WCHAR path[MAX_PATH];
+			if (GetProcessImageFileNameW(hProcess.Get(), path, MAX_PATH)) {
+				std::wstring pathStr(path);
+				std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::towlower);
+				if (pathStr.find(L"\\windows\\system32\\") != std::wstring::npos ||
+					pathStr.find(L"\\windows\\syswow64\\") != std::wstring::npos) {
+					isSystem = true;
+				}
+			}
+		}
+	}
+	
+	m_SystemProcessCache[processId] = isSystem;
+	return isSystem;
+}
+
+bool MainWindow::IsVerifiedProcess(const std::wstring& imagePath) {
+	auto it = m_VerifiedCache.find(imagePath);
+	if (it != m_VerifiedCache.end()) {
+		return it->second;
+	}
+	
+	bool verified = false;
+	
+	WINTRUST_FILE_INFO fileInfo = {};
+	fileInfo.cbStruct = sizeof(WINTRUST_FILE_INFO);
+	fileInfo.pcwszFilePath = imagePath.c_str();
+	fileInfo.hFile = nullptr;
+	fileInfo.pgKnownSubject = nullptr;
+	
+	GUID policyGUID = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+	WINTRUST_DATA trustData = {};
+	trustData.cbStruct = sizeof(WINTRUST_DATA);
+	trustData.dwUIChoice = WTD_UI_NONE;
+	trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
+	trustData.dwUnionChoice = WTD_CHOICE_FILE;
+	trustData.pFile = &fileInfo;
+	trustData.dwStateAction = WTD_STATEACTION_VERIFY;
+	trustData.dwProvFlags = WTD_SAFER_FLAG;
+	
+	LONG status = WinVerifyTrust(nullptr, &policyGUID, &trustData);
+	verified = (status == ERROR_SUCCESS);
+	
+	trustData.dwStateAction = WTD_STATEACTION_CLOSE;
+	WinVerifyTrust(nullptr, &policyGUID, &trustData);
+	
+	m_VerifiedCache[imagePath] = verified;
+	return verified;
+}
+
+std::wstring MainWindow::GetFileDescription(const std::wstring& filePath) {
+	auto it = m_DescriptionCache.find(filePath);
+	if (it != m_DescriptionCache.end()) {
+		return it->second;
+	}
+	
+	std::wstring description;
+	
+	DWORD handle = 0;
+	DWORD size = GetFileVersionInfoSizeW(filePath.c_str(), &handle);
+	if (size > 0 && size < 10 * 1024 * 1024) {
+		std::vector<BYTE> buffer(size);
+		if (GetFileVersionInfoW(filePath.c_str(), 0, size, buffer.data())) {
+			struct LANGANDCODEPAGE {
+				WORD wLanguage;
+				WORD wCodePage;
+			} *lpTranslate;
+			
+			UINT cbTranslate;
+			if (VerQueryValueW(buffer.data(), L"\\VarFileInfo\\Translation", (LPVOID*)&lpTranslate, &cbTranslate)) {
+				for (UINT i = 0; i < (cbTranslate / sizeof(struct LANGANDCODEPAGE)); i++) {
+					wchar_t subBlock[256];
+					swprintf_s(subBlock, L"\\StringFileInfo\\%04x%04x\\FileDescription",
+						lpTranslate[i].wLanguage, lpTranslate[i].wCodePage);
+					
+					LPVOID lpBuffer;
+					UINT dwBytes;
+					if (VerQueryValueW(buffer.data(), subBlock, &lpBuffer, &dwBytes) && dwBytes > 0) {
+						description = static_cast<LPCWSTR>(lpBuffer);
+						break;
+					}
+				}
+			}
+		}
+	}
+	
+	m_DescriptionCache[filePath] = description;
+	return description;
+}
+
+std::wstring MainWindow::GetFileCompany(const std::wstring& filePath) {
+	auto it = m_CompanyCache.find(filePath);
+	if (it != m_CompanyCache.end()) {
+		return it->second;
+	}
+	
+	std::wstring company;
+	
+	DWORD handle = 0;
+	DWORD size = GetFileVersionInfoSizeW(filePath.c_str(), &handle);
+	if (size > 0 && size < 10 * 1024 * 1024) {
+		std::vector<BYTE> buffer(size);
+		if (GetFileVersionInfoW(filePath.c_str(), 0, size, buffer.data())) {
+			struct LANGANDCODEPAGE {
+				WORD wLanguage;
+				WORD wCodePage;
+			} *lpTranslate;
+			
+			UINT cbTranslate;
+			if (VerQueryValueW(buffer.data(), L"\\VarFileInfo\\Translation", (LPVOID*)&lpTranslate, &cbTranslate)) {
+				for (UINT i = 0; i < (cbTranslate / sizeof(struct LANGANDCODEPAGE)); i++) {
+					wchar_t subBlock[256];
+					swprintf_s(subBlock, L"\\StringFileInfo\\%04x%04x\\CompanyName",
+						lpTranslate[i].wLanguage, lpTranslate[i].wCodePage);
+					
+					LPVOID lpBuffer;
+					UINT dwBytes;
+					if (VerQueryValueW(buffer.data(), subBlock, &lpBuffer, &dwBytes) && dwBytes > 0) {
+						company = static_cast<LPCWSTR>(lpBuffer);
+						break;
+					}
+				}
+			}
+		}
+	}
+	
+	m_CompanyCache[filePath] = company;
+	return company;
 }

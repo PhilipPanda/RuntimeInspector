@@ -9,7 +9,6 @@ std::string SystemInfo::GetWindowsVersion() const {
 	OSVERSIONINFOEXW osvi = {};
 	osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFOEXW);
 
-	// Use RtlGetVersion for accurate version info (GetVersionEx is deprecated)
 	typedef NTSTATUS(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 	HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
 	if (hNtdll) {
@@ -20,7 +19,6 @@ std::string SystemInfo::GetWindowsVersion() const {
 		}
 	}
 
-	// Fallback to GetVersionEx if RtlGetVersion not available
 	if (osvi.dwMajorVersion == 0) {
 		#pragma warning(push)
 		#pragma warning(disable: 4996)

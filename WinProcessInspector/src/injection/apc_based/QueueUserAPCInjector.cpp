@@ -38,7 +38,6 @@ bool InjectViaQueueUserAPC(LPCSTR DllPath, HANDLE hProcess, DWORD processId) {
 	}
 
 	te32.dwSize = sizeof(THREADENTRY32);
-	DWORD threadId = 0;
 
 	if (!Thread32First(hThreadSnap, &te32)) {
 		CloseHandle(hThreadSnap);
@@ -46,27 +45,33 @@ bool InjectViaQueueUserAPC(LPCSTR DllPath, HANDLE hProcess, DWORD processId) {
 		return false;
 	}
 
+	DWORD threadId = 0;
 	do {
 		if (te32.th32OwnerProcessID == processId) {
 			threadId = te32.th32ThreadID;
-			HANDLE hThread = OpenThread(THREAD_SET_CONTEXT, FALSE, threadId);
-
-			if (hThread) {
-				DWORD dwResult = QueueUserAPC((PAPCFUNC)LoadLibAddr, hThread, (ULONG_PTR)pDllPath);
-				CloseHandle(hThread);
-
-				if (dwResult) {
-					CloseHandle(hThreadSnap);
-					return true;
-				}
-			}
+			break;
 		}
 	} while (Thread32Next(hThreadSnap, &te32));
 
+	if (threadId == 0) {
+		CloseHandle(hThreadSnap);
+		VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
+		return false;
+	}
+
+	HANDLE hThread = OpenThread(THREAD_SET_CONTEXT, FALSE, threadId);
+	if (!hThread) {
+		CloseHandle(hThreadSnap);
+		VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
+		return false;
+	}
+
+	DWORD dwResult = QueueUserAPC((PAPCFUNC)LoadLibAddr, hThread, (ULONG_PTR)pDllPath);
+	CloseHandle(hThread);
 	CloseHandle(hThreadSnap);
 	VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
 
-	return false;
+	return dwResult != 0;
 }
 
 }

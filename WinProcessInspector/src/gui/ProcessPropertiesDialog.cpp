@@ -50,7 +50,7 @@ bool ProcessPropertiesDialog::Show(DWORD processId) {
 		if (!CreateDialogWindow()) {
 			return false;
 		}
-		ShowWindow(m_hDlg, SW_HIDE); // Hide until ready
+		ShowWindow(m_hDlg, SW_HIDE);
 	}
 
 	m_ProcessInfo = m_ProcessManager.GetProcessDetails(processId);
@@ -58,7 +58,6 @@ bool ProcessPropertiesDialog::Show(DWORD processId) {
 		return false;
 	}
 
-	// Update dialog title
 	std::wostringstream title;
 	title << L"Process Properties - " << m_ProcessInfo.ProcessId;
 	std::wstring titleWStr = title.str();
@@ -77,7 +76,6 @@ void ProcessPropertiesDialog::Close() {
 }
 
 bool ProcessPropertiesDialog::CreateDialogWindow() {
-	// Register window class for dialog
 	WNDCLASSEXW wc = {};
 	wc.cbSize = sizeof(WNDCLASSEXW);
 	wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -94,7 +92,6 @@ bool ProcessPropertiesDialog::CreateDialogWindow() {
 		}
 	}
 
-	// Create modeless dialog window
 	m_hDlg = CreateWindowExW(
 		WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
 		L"WinProcessInspectorPropertiesDialog",
@@ -112,7 +109,6 @@ bool ProcessPropertiesDialog::CreateDialogWindow() {
 		return false;
 	}
 
-	// Create OK button
 	RECT rc;
 	GetClientRect(m_hDlg, &rc);
 	HWND hOkButton = CreateWindowW(
@@ -212,7 +208,6 @@ void ProcessPropertiesDialog::CreateGeneralTab() {
 		nullptr
 	);
 	
-	// Add Search Online button
 	HWND hSearchButton = CreateWindowW(
 		L"BUTTON",
 		L"Search Online",
@@ -549,10 +544,9 @@ LRESULT ProcessPropertiesDialog::OnSize() {
 		rc.top += 10;
 		rc.left += 10;
 		rc.right -= 10;
-		rc.bottom -= 50; // Space for OK button
+		rc.bottom -= 50;
 		SetWindowPos(m_hTabControl, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, SWP_NOZORDER);
 		
-		// Resize tab pages
 		RECT tabRc = rc;
 		TabCtrl_AdjustRect(m_hTabControl, FALSE, &tabRc);
 		if (m_hGeneralTab) SetWindowPos(m_hGeneralTab, nullptr, tabRc.left, tabRc.top, tabRc.right - tabRc.left, tabRc.bottom - tabRc.top, SWP_NOZORDER);
@@ -566,7 +560,6 @@ LRESULT ProcessPropertiesDialog::OnSize() {
 		if (m_hNetworkTab) SetWindowPos(m_hNetworkTab, nullptr, tabRc.left, tabRc.top, tabRc.right - tabRc.left, tabRc.bottom - tabRc.top, SWP_NOZORDER);
 		if (m_hServicesTab) SetWindowPos(m_hServicesTab, nullptr, tabRc.left, tabRc.top, tabRc.right - tabRc.left, tabRc.bottom - tabRc.top, SWP_NOZORDER);
 		
-		// Resize list views
 		RECT listRc = tabRc;
 		listRc.left += 10;
 		listRc.top += 10;
@@ -577,7 +570,6 @@ LRESULT ProcessPropertiesDialog::OnSize() {
 		if (m_hMemoryListView) SetWindowPos(m_hMemoryListView, nullptr, listRc.left, listRc.top, listRc.right - listRc.left, listRc.bottom - listRc.top, SWP_NOZORDER);
 		if (m_hHandleListView) SetWindowPos(m_hHandleListView, nullptr, listRc.left, listRc.top, listRc.right - listRc.left, listRc.bottom - listRc.top, SWP_NOZORDER);
 		
-		// Position OK button
 		HWND hOkButton = GetDlgItem(m_hDlg, IDOK);
 		if (hOkButton) {
 			RECT btnRc;
@@ -591,7 +583,6 @@ LRESULT ProcessPropertiesDialog::OnSize() {
 }
 
 void ProcessPropertiesDialog::OnTabChanged(int tabIndex) {
-	// Hide all tabs
 	ShowWindow(m_hGeneralTab, SW_HIDE);
 	ShowWindow(m_hPerformanceTab, SW_HIDE);
 	ShowWindow(m_hThreadsTab, SW_HIDE);
@@ -655,7 +646,6 @@ void ProcessPropertiesDialog::RefreshCurrentTab() {
 }
 
 void ProcessPropertiesDialog::RefreshGeneralTab() {
-	// TODO: Populate general tab with process info
 }
 
 void ProcessPropertiesDialog::RefreshThreadsTab() {
@@ -800,7 +790,6 @@ void ProcessPropertiesDialog::RefreshHandlesTab() {
 }
 
 void ProcessPropertiesDialog::RefreshSecurityTab() {
-	// TODO: Populate security tab with token info
 }
 
 void ProcessPropertiesDialog::CreateEnvironmentTab() {
@@ -861,19 +850,15 @@ void ProcessPropertiesDialog::CreateServicesTab() {
 }
 
 void ProcessPropertiesDialog::RefreshPerformanceTab() {
-	// TODO: Populate performance tab with CPU, memory, I/O statistics
 }
 
 void ProcessPropertiesDialog::RefreshEnvironmentTab() {
-	// TODO: Populate environment tab with process environment variables
 }
 
 void ProcessPropertiesDialog::RefreshNetworkTab() {
-	// TODO: Populate network tab with network connections
 }
 
 void ProcessPropertiesDialog::RefreshServicesTab() {
-	// TODO: Populate services tab with related Windows services
 }
 
 void ProcessPropertiesDialog::OnSearchOnline() {

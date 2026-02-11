@@ -26,30 +26,39 @@ bool InjectViaSetWindowsHookEx(DWORD processId, LPCSTR dllPath) {
 	}
 
 	te32.dwSize = sizeof(THREADENTRY32);
-	DWORD threadId = 0;
 
 	if (!Thread32First(hThreadSnap, &te32)) {
 		CloseHandle(hThreadSnap);
 		return false;
 	}
 
+	DWORD threadId = 0;
 	do {
 		if (te32.th32OwnerProcessID == processId) {
 			threadId = te32.th32ThreadID;
-			HANDLE hThread = OpenThread(READ_CONTROL, FALSE, te32.th32ThreadID);
-
-			if (hThread) {
-				HHOOK hookHandle = SetWindowsHookExA(WH_KEYBOARD, procAddress, hModDll, (DWORD)threadId);
-				CloseHandle(hThread);
-
-				if (hookHandle) {
-					UnhookWindowsHookEx(hookHandle);
-					CloseHandle(hThreadSnap);
-					return true;
-				}
-			}
+			break;
 		}
 	} while (Thread32Next(hThreadSnap, &te32));
+
+	if (threadId == 0) {
+		CloseHandle(hThreadSnap);
+		return false;
+	}
+
+	HANDLE hThread = OpenThread(READ_CONTROL, FALSE, threadId);
+	if (!hThread) {
+		CloseHandle(hThreadSnap);
+		return false;
+	}
+
+	HHOOK hookHandle = SetWindowsHookExA(WH_KEYBOARD, procAddress, hModDll, threadId);
+	CloseHandle(hThread);
+
+	if (hookHandle) {
+		UnhookWindowsHookEx(hookHandle);
+		CloseHandle(hThreadSnap);
+		return true;
+	}
 
 	CloseHandle(hThreadSnap);
 	return false;

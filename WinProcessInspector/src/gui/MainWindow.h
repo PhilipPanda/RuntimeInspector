@@ -19,12 +19,8 @@
 namespace WinProcessInspector {
 namespace GUI {
 
-	// Forward declarations
 	class ProcessPropertiesDialog;
 
-	/**
-	 * Main application window - native Win32 implementation
-	 */
 	class MainWindow {
 	public:
 		MainWindow(HINSTANCE hInstance);
@@ -33,12 +29,18 @@ namespace GUI {
 		bool Initialize();
 		int Run();
 		
-		// Public accessors for column visibility
 		std::vector<bool>& GetColumnVisible() { return m_ColumnVisible; }
 		void UpdateColumnVisibility();
 
 	private:
-		// Window creation and message handling
+		LRESULT OnCustomDraw(LPNMLVCUSTOMDRAW lplvcd);
+		COLORREF GetProcessColor(DWORD processId, const WinProcessInspector::Core::ProcessInfo& info);
+		void DrawCpuBar(HDC hdc, RECT rect, double cpuPercent);
+		void DrawMemoryBar(HDC hdc, RECT rect, SIZE_T memory, SIZE_T totalMemory);
+		bool IsSystemProcess(DWORD processId);
+		bool IsVerifiedProcess(const std::wstring& imagePath);
+		std::wstring GetFileDescription(const std::wstring& filePath);
+		std::wstring GetFileCompany(const std::wstring& filePath);
 		bool CreateMainWindow();
 		bool CreateMenuBar();
 		bool CreateToolbar();
@@ -47,7 +49,6 @@ namespace GUI {
 		bool CreateStatusBar();
 		void Cleanup();
 
-		// Message handling
 		static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 		LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
 		LRESULT OnCreate();
@@ -58,7 +59,6 @@ namespace GUI {
 		LRESULT OnContextMenu(WPARAM wParam, LPARAM lParam);
 		LRESULT OnTimer(WPARAM wParam);
 
-		// Process list management
 		void RefreshProcessList();
 		void UpdateProcessList();
 		void SortProcessList(int column, bool ascending);
@@ -67,12 +67,10 @@ namespace GUI {
 		void OnProcessListSelectionChanged();
 		void ShowProcessContextMenu(int x, int y);
 
-		// Menu handlers
 		void OnFileRefresh();
 		void OnFileExport();
 		void OnFileExit();
 		
-		// Export functions
 		bool ExportToCSV(const std::wstring& filePath, const std::vector<WinProcessInspector::Core::ProcessInfo>& processes);
 		bool ExportToJSON(const std::wstring& filePath, const std::vector<WinProcessInspector::Core::ProcessInfo>& processes);
 		bool ExportToText(const std::wstring& filePath, const std::vector<WinProcessInspector::Core::ProcessInfo>& processes);
@@ -87,7 +85,6 @@ namespace GUI {
 		void OnHelpGitHub();
 		void UpdateProcessMenuState();
 
-		// Process operations
 		void ShowProcessProperties(DWORD processId);
 		void TerminateProcess(DWORD processId);
 		void SuspendProcess(DWORD processId);
@@ -99,13 +96,11 @@ namespace GUI {
 		void CopyProcessName(DWORD processId);
 		void SearchProcessOnline(DWORD processId);
 
-		// Validation layer
 		bool ValidateProcess(DWORD processId, std::wstring& errorMsg);
 		bool ValidateProcessAccess(DWORD processId, DWORD desiredAccess, std::wstring& errorMsg);
 		bool ValidateArchitectureCompatibility(DWORD processId, std::wstring& errorMsg);
 		bool ValidateIntegrityLevel(DWORD processId, std::wstring& errorMsg);
 
-		// Utility
 		std::wstring FormatIntegrityLevel(WinProcessInspector::Security::IntegrityLevel level);
 		std::wstring FormatMemorySize(SIZE_T bytes);
 		std::wstring FormatTime(const FILETIME& ft);
@@ -136,14 +131,14 @@ namespace GUI {
 
 		std::vector<WinProcessInspector::Core::ProcessInfo> m_Processes;
 		std::vector<WinProcessInspector::Core::ProcessInfo> m_FilteredProcesses;
-		std::unordered_map<DWORD, bool> m_ExpandedProcesses; // Track which processes are expanded
-		std::unordered_map<DWORD, std::vector<DWORD>> m_ProcessChildren; // PID -> children PIDs
-		std::unordered_map<DWORD, ULONGLONG> m_ProcessCpuTime; // PID -> last CPU time (for delta calculation)
-		std::unordered_map<DWORD, DWORD> m_ProcessCpuTimePrev; // PID -> previous CPU time snapshot
-		std::unordered_map<DWORD, double> m_ProcessCpuPercent; // PID -> CPU usage percentage
-		std::unordered_map<DWORD, SIZE_T> m_ProcessMemory; // PID -> private memory bytes
-		ULONGLONG m_LastCpuUpdateTime; // Last time CPU was calculated
-		std::unordered_map<DWORD, int> m_ProcessDepth; // PID -> tree depth for display
+		std::unordered_map<DWORD, bool> m_ExpandedProcesses;
+		std::unordered_map<DWORD, std::vector<DWORD>> m_ProcessChildren;
+		std::unordered_map<DWORD, ULONGLONG> m_ProcessCpuTime;
+		std::unordered_map<DWORD, DWORD> m_ProcessCpuTimePrev;
+		std::unordered_map<DWORD, double> m_ProcessCpuPercent;
+		std::unordered_map<DWORD, SIZE_T> m_ProcessMemory;
+		ULONGLONG m_LastCpuUpdateTime;
+		std::unordered_map<DWORD, int> m_ProcessDepth;
 		DWORD m_SelectedProcessId;
 		int m_SortColumn;
 		bool m_SortAscending;
@@ -156,13 +151,18 @@ namespace GUI {
 		ULONGLONG m_LastRefreshTime;
 		std::wstring m_FilterText;
 		
-		// Column visibility
 		std::vector<bool> m_ColumnVisible;
 		
-		// Icon cache for process icons
 		HIMAGELIST m_hProcessIconList;
-		std::unordered_map<std::wstring, int> m_IconCache; // path -> image index
+		std::unordered_map<std::wstring, int> m_IconCache;
 		int m_DefaultIconIndex;
+		
+		std::unordered_map<DWORD, bool> m_SystemProcessCache;
+		std::unordered_map<std::wstring, bool> m_VerifiedCache;
+		std::unordered_map<std::wstring, std::wstring> m_DescriptionCache;
+		std::unordered_map<std::wstring, std::wstring> m_CompanyCache;
+		SIZE_T m_TotalSystemMemory;
+		DWORD m_CurrentProcessId;
 
 		std::unique_ptr<ProcessPropertiesDialog> m_PropertiesDialog;
 	};
