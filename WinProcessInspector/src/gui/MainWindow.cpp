@@ -1633,7 +1633,8 @@ void MainWindow::OnFileExport() {
 	
 	BuildProcessHierarchy();
 	
-	const auto& processesToExport = m_FilteredProcesses.empty() ? m_Processes : m_FilteredProcesses;
+	const auto& processesToExport = m_FilterText.empty() ? m_Processes : m_FilteredProcesses;
+
 	
 	OPENFILENAMEW ofn = {};
 	wchar_t szFile[260] = {};
@@ -1720,7 +1721,7 @@ bool MainWindow::ExportToCSV(const std::wstring& filePath, const std::vector<Win
 	}
 
 	FILE* file = nullptr;
-	if (_wfopen_s(&file, filePath.c_str(), L"w,ccs=UTF-8") != 0 || !file) {
+	if (_wfopen_s(&file, filePath.c_str(), L"wb") != 0 || !file) {
 		return false;
 	}
 
@@ -2561,7 +2562,7 @@ void MainWindow::CalculateCpuUsage() {
 			m_ProcessCpuPercent[proc.ProcessId] = 0.0;
 		}
 		
-		m_ProcessCpuTimePrev[proc.ProcessId] = static_cast<DWORD>(processTime & 0xFFFFFFFF);
+		m_ProcessCpuTimePrev[proc.ProcessId] = processTime;
 	}
 	
 	m_LastCpuUpdateTime = currentTime;
