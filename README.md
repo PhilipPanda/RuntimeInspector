@@ -16,7 +16,7 @@
 
 ---
 
-## ✨ Features
+##  Features
 
 ### Process & Thread Inspection
 - Full process enumeration — PID, PPID, session, integrity level, architecture
@@ -55,7 +55,7 @@
 
 ---
 
-## 📸 Showcase
+##  Showcase
 
 <p align="center">
   <img src="github/images/showcase.png" alt="WinProcessInspector Showcase">
@@ -63,7 +63,7 @@
 
 ---
 
-## 📋 Requirements
+##  Requirements
 
 - **OS**: Windows 10 / 11 (x64)
 - **Build Tool**: Visual Studio 2019 or later
@@ -73,7 +73,7 @@
 
 ---
 
-## 🚀 Build & Launch
+##  Build & Launch
 
 ### 1. Build the Executable
 1. Open `WinProcessInspector.sln` in **Visual Studio**
@@ -94,7 +94,7 @@
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+##  Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|
@@ -107,7 +107,7 @@
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 Contributions are welcome! To contribute:
 
